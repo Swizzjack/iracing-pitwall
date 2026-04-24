@@ -40,3 +40,4 @@ dist/
 .env
 .env.local
 .bash_history
+dist/
