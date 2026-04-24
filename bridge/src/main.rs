@@ -5,7 +5,7 @@
 //! Entry point wires up logging, spawns the SDK reader task (Windows only),
 //! and starts the WebSocket server that pushes snapshots to the dashboard.
 
-#![cfg_attr(not(windows), allow(dead_code))]
+#![allow(dead_code)]
 
 mod config;
 mod error;
@@ -29,8 +29,41 @@ async fn main() -> Result<()> {
         log::warn!("Non-Windows build: iRacing SDK reader disabled (stub only).");
     }
 
-    // TODO: spawn reader task, ws server, wire broadcast channel.
-    todo!("wire up reader + ws server");
+    // Try to connect to iRacing
+    match iracing_sdk::IRacingClient::connect() {
+        Ok(client) => {
+            let header = client.header();
+            log::info!("Connected to iRacing SDK");
+            log::info!(
+                "Header: ver={}, tick_rate={}, num_vars={}, buf_len={}, connected={}",
+                header.ver,
+                header.tick_rate,
+                header.num_vars,
+                header.buf_len,
+                header.is_connected()
+            );
+            // Client will be dropped here when it goes out of scope
+            // For now we just log and exit normally
+        }
+        Err(e) => {
+            #[cfg(not(windows))]
+            {
+                log::warn!(
+                    "Failed to connect to iRacing SDK (expected on non-Windows): {}",
+                    e
+                );
+                // Normal exit on non-Windows during dev
+                return Ok(());
+            }
+            #[cfg(windows)]
+            {
+                log::error!("Failed to connect to iRacing SDK: {}", e);
+                return Err(e.into());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn init_logging() {
