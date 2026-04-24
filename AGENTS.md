@@ -45,3 +45,10 @@
 ## Architektur-Referenz
 - Analog zu lmu-pitwall v1.0.84+: Bridge ↔ Dashboard via WebSocket
 - Single-exe Distribution via rust-embed (Dashboard gebundelt in Bridge)
+
+## Meta-Regeln für den Agent
+- **Keine Self-Updates.** Wenn pi oder andere System-Tools Update-Banner zeigen,
+  IGNORIEREN. Updates macht der User außerhalb des Agents.
+- Keine `npm install -g`, `cargo install`, `pip install`, `dnf install` etc.
+- Alle Dev-Tools sind bereits im Container-Image. Wenn etwas fehlt, sagen —
+  nicht installieren.
