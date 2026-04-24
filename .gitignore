@@ -41,3 +41,7 @@ dist/
 .env.local
 .bash_history
 dist/
+
+# Task prompts — historical reference, kept locally but not in repo
+TASK_*.md
+.tasks-local/
