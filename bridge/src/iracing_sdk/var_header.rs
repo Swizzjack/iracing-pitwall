@@ -53,13 +53,91 @@ pub struct VarDescriptor {
 /// Name → Descriptor Lookup. Wird einmal nach Connect aufgebaut.
 pub type VarIndex = HashMap<String, VarDescriptor>;
 
+/// Helper: Extract a null-terminated C-style UTF-8 string from bytes.
+fn cstr_from_bytes(b: &[u8]) -> crate::error::Result<String> {
+    let len = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+    let prefix = &b[..len];
+    std::str::from_utf8(prefix)
+        .map(|s| s.to_owned())
+        .map_err(|e| crate::error::BridgeError::SdkRead(format!("UTF-8: {e}")))
+}
+
 /// Parst das varHeader-Array aus dem MMF-Slice.
 ///
 /// # Arguments
 /// * `raw` - Slice beginnend bei `header.var_header_offset`, Länge ≥ `num_vars * 144`.
 /// * `num_vars` - Anzahl Einträge (aus Top-Level-Header).
-pub fn parse_var_index(_raw: &[u8], _num_vars: usize) -> VarIndex {
-    // TODO: Für jeden Eintrag 144 Bytes lesen, null-terminated Strings extrahieren,
-    // VarDescriptor in HashMap mit name als Key einfügen.
-    todo!("parse var_header array")
+pub fn parse_var_index(raw: &[u8], num_vars: usize) -> crate::error::Result<VarIndex> {
+    let expected_len = num_vars.checked_mul(VAR_HEADER_SIZE).ok_or_else(|| {
+        crate::error::BridgeError::SdkRead(format!(
+            "var_header length overflow: {} * {}",
+            num_vars, VAR_HEADER_SIZE
+        ))
+    })?;
+
+    if raw.len() < expected_len {
+        return Err(crate::error::BridgeError::SdkRead(format!(
+            "var_header slice too short: {} < {}",
+            raw.len(),
+            expected_len
+        )));
+    }
+
+    let mut var_index = HashMap::with_capacity(num_vars);
+
+    for i in 0..num_vars {
+        let record_start = i * VAR_HEADER_SIZE;
+        let record = &raw[record_start..record_start + VAR_HEADER_SIZE];
+
+        // Read i32 fields (little-endian, Windows x86_64)
+        let type_bytes: [u8; 4] = [record[0], record[1], record[2], record[3]];
+        let offset_bytes: [u8; 4] = [record[4], record[5], record[6], record[7]];
+        let count_bytes: [u8; 4] = [record[8], record[9], record[10], record[11]];
+
+        let var_type_val = i32::from_le_bytes(type_bytes);
+        let var_offset = i32::from_le_bytes(offset_bytes);
+        let var_count = i32::from_le_bytes(count_bytes);
+
+        let var_type = VarType::from_i32(var_type_val).ok_or_else(|| {
+            crate::error::BridgeError::SdkRead(format!(
+                "invalid var_type {} at index {}",
+                var_type_val, i
+            ))
+        })?;
+
+        // Extract strings (trimmed at null bytes)
+        let name = cstr_from_bytes(&record[16..48])?;
+        let desc = cstr_from_bytes(&record[48..112])?;
+        let unit = cstr_from_bytes(&record[112..144])?;
+
+        // Skip padding records (empty name)
+        if name.is_empty() {
+            continue;
+        }
+
+        let descriptor = VarDescriptor {
+            var_type,
+            offset: var_offset as usize,
+            count: var_count as usize,
+            name: name.clone(),
+            desc,
+            unit,
+        };
+
+        // Keep first occurrence, warn about duplicates.
+        // Entry API avoids the HashMap::insert "always overwrites" semantics.
+        match var_index.entry(name.clone()) {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                log::warn!(
+                    "Duplicate var name '{}' found, keeping first occurrence",
+                    name
+                );
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(descriptor);
+            }
+        }
+    }
+
+    Ok(var_index)
 }

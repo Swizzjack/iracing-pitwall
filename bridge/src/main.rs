@@ -42,6 +42,28 @@ async fn main() -> Result<()> {
                 header.buf_len,
                 header.is_connected()
             );
+
+            // Acceptance test: lookup known telemetry variables
+            let var_index = client.var_index();
+            log::info!("var_index contains {} entries", var_index.len());
+            for name in ["Speed", "Throttle", "SessionTime"] {
+                match var_index.get(name) {
+                    Some(v) => {
+                        log::info!(
+                            " {}: type={:?} offset={} count={} unit={:?}",
+                            name,
+                            v.var_type,
+                            v.offset,
+                            v.count,
+                            v.unit
+                        );
+                    }
+                    None => {
+                        log::warn!(" {}: NOT FOUND", name);
+                    }
+                }
+            }
+
             // Client will be dropped here when it goes out of scope
             // For now we just log and exit normally
         }

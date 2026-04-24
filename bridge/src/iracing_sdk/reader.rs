@@ -11,35 +11,30 @@
 use crate::error::{BridgeError, Result};
 use crate::iracing_sdk::header::Header;
 use crate::iracing_sdk::var_header::VarIndex;
+#[cfg(windows)]
+use crate::iracing_sdk::var_header::VAR_HEADER_SIZE;
 
 #[cfg(windows)]
 use crate::iracing_sdk::header::IRSDK_VER_EXPECTED;
 
 #[cfg(windows)]
-use std::collections::HashMap;
-
-#[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
-
 #[cfg(windows)]
 use windows_sys::Win32::System::Memory::{
     MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ, MEMORY_MAPPED_VIEW_ADDRESS,
 };
-
 #[cfg(windows)]
 use windows_sys::Win32::System::Threading::{OpenEventW, SYNCHRONIZATION_SYNCHRONIZE};
 
 /// Platform-agnostic handle type
 #[cfg(windows)]
 type Handle = HANDLE;
-
 #[cfg(not(windows))]
 type Handle = *mut ();
 
 /// Platform-agnostic view pointer
 #[cfg(windows)]
 type ViewPtr = *const u8;
-
 #[cfg(not(windows))]
 type ViewPtr = *const u8;
 
@@ -67,7 +62,6 @@ impl IRacingClient {
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect();
-
             // SAFETY: Calling OpenFileMappingW with valid UTF-16 string that is
             // null-terminated. FILE_MAP_READ is the correct access mode.
             let mmf_handle = unsafe { OpenFileMappingW(FILE_MAP_READ, 0, mmf_name.as_ptr()) };
@@ -135,13 +129,40 @@ impl IRacingClient {
                 ));
             }
 
+            // Parse variable header array
+            // SAFETY: view_ptr is valid and header values are from SDK layout.
+            // var_header_offset and num_vars are guaranteed by the SDK to point
+            // to valid memory within the MMF view.
+            let var_header_slice = unsafe {
+                std::slice::from_raw_parts(
+                    (view_ptr.Value as *const u8).add(header.var_header_offset as usize),
+                    (header.num_vars as usize) * VAR_HEADER_SIZE,
+                )
+            };
+            let var_index = match crate::iracing_sdk::var_header::parse_var_index(
+                var_header_slice,
+                header.num_vars as usize,
+            ) {
+                Ok(vi) => vi,
+                Err(e) => {
+                    // Cleanup on parse failure: mmf_handle, view, event_handle all open
+                    // SAFETY: all three handles are valid at this point
+                    unsafe {
+                        UnmapViewOfFile(view_ptr);
+                        CloseHandle(mmf_handle);
+                        CloseHandle(event_handle);
+                    }
+                    return Err(e);
+                }
+            };
+
             // Construct the client with all handles and data
             Ok(Self {
                 mmf_handle,
                 view_ptr: view_ptr.Value as ViewPtr,
                 event_handle,
                 header,
-                var_index: HashMap::new(),
+                var_index,
             })
         }
         #[cfg(not(windows))]
@@ -165,7 +186,7 @@ impl IRacingClient {
 
     /// Gibt den nach `connect()` aufgebauten Variable-Index zurück.
     pub fn var_index(&self) -> &VarIndex {
-        todo!("return cached var index")
+        &self.var_index
     }
 
     /// Liest einen f32-Scalar anhand des Variable-Namens.
@@ -188,7 +209,6 @@ impl Drop for IRacingClient {
         } else {
             log::warn!("IRacingClient::drop: view_ptr was null, cannot unmap");
         }
-
         // SAFETY: mmf_handle is valid if non-null
         if !self.mmf_handle.is_null() {
             unsafe {
@@ -197,7 +217,6 @@ impl Drop for IRacingClient {
         } else {
             log::warn!("IRacingClient::drop: mmf_handle was null, cannot close");
         }
-
         // SAFETY: event_handle is valid if non-null
         if !self.event_handle.is_null() {
             unsafe {
