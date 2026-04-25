@@ -162,9 +162,9 @@ impl TelemetrySnapshot {
 
 fn corner_temps(client: &IRacingClient, prefix: &str) -> Result<[f32; 3]> {
     Ok([
-        client.get_f32(&format!("{prefix}tempL"))?,
-        client.get_f32(&format!("{prefix}tempM"))?,
-        client.get_f32(&format!("{prefix}tempR"))?,
+        client.get_f32(&format!("{prefix}tempCL"))?,
+        client.get_f32(&format!("{prefix}tempCM"))?,
+        client.get_f32(&format!("{prefix}tempCR"))?,
     ])
 }
 
