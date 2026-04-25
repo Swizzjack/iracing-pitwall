@@ -1,9 +1,6 @@
 //! iRacing Pitwall — Bridge
 //!
 //! Tokio runtime, WebSocket server, iRacing SDK reader.
-//!
-//! Entry point wires up logging, spawns the SDK reader task (Windows only),
-//! and starts the WebSocket server that pushes snapshots to the dashboard.
 
 #![allow(dead_code)]
 
@@ -26,65 +23,30 @@ async fn main() -> Result<()> {
 
     #[cfg(not(windows))]
     {
-        log::warn!("Non-Windows build: iRacing SDK reader disabled (stub only).");
+        log::warn!("Non-Windows build: iRacing SDK reader disabled.");
+        return Ok(());
     }
 
-    // Try to connect to iRacing
-    match iracing_sdk::IRacingClient::connect() {
-        Ok(client) => {
-            let header = client.header();
-            log::info!("Connected to iRacing SDK");
-            log::info!(
-                "Header: ver={}, tick_rate={}, num_vars={}, buf_len={}, connected={}",
-                header.ver,
-                header.tick_rate,
-                header.num_vars,
-                header.buf_len,
-                header.is_connected()
-            );
+    #[cfg(windows)]
+    run_demo_loop()
+}
 
-            // Acceptance test: lookup known telemetry variables
-            let var_index = client.var_index();
-            log::info!("var_index contains {} entries", var_index.len());
-            for name in ["Speed", "Throttle", "SessionTime"] {
-                match var_index.get(name) {
-                    Some(v) => {
-                        log::info!(
-                            " {}: type={:?} offset={} count={} unit={:?}",
-                            name,
-                            v.var_type,
-                            v.offset,
-                            v.count,
-                            v.unit
-                        );
-                    }
-                    None => {
-                        log::warn!(" {}: NOT FOUND", name);
-                    }
-                }
-            }
-
-            // Client will be dropped here when it goes out of scope
-            // For now we just log and exit normally
-        }
-        Err(e) => {
-            #[cfg(not(windows))]
-            {
-                log::warn!(
-                    "Failed to connect to iRacing SDK (expected on non-Windows): {}",
-                    e
-                );
-                // Normal exit on non-Windows during dev
-                return Ok(());
-            }
-            #[cfg(windows)]
-            {
-                log::error!("Failed to connect to iRacing SDK: {}", e);
-                return Err(e.into());
-            }
-        }
+/// Task 3+4 acceptance: 10 frames with live telemetry values.
+#[cfg(windows)]
+fn run_demo_loop() -> Result<()> {
+    let mut client = iracing_sdk::IRacingClient::connect()?;
+    client.parse_var_index()?;
+    for _ in 0..10 {
+        client.wait_for_frame()?;
+        log::info!(
+            "Speed={:.2} m/s  Throttle={:.0}%  RPM={:.0}  Gear={}  SessionTime={:.3}",
+            client.get_f32("Speed")?,
+            client.get_f32("Throttle")? * 100.0,
+            client.get_f32("RPM")?,
+            client.get_i32("Gear")?,
+            client.get_f64("SessionTime")?,
+        );
     }
-
     Ok(())
 }
 
