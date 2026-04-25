@@ -49,6 +49,21 @@ fn run_demo_loop() -> Result<()> {
         Err(e) => log::warn!("SessionInfo parse failed: {e}"),
     }
 
+    // Standings snapshot (once, from first frame)
+    client.wait_for_frame()?;
+    let yaml_info = iracing_sdk::yaml::decode_and_parse(client.session_info_bytes());
+    if let Ok(ref yaml) = yaml_info {
+        match telemetry::StandingsSnapshot::build(&client, yaml) {
+            Ok(s) => log::info!(
+                "Standings: session={} type={} entries={}",
+                s.session_num,
+                s.session_type,
+                s.entries.len()
+            ),
+            Err(e) => log::warn!("StandingsSnapshot failed: {e}"),
+        }
+    }
+
     for _ in 0..10 {
         client.wait_for_frame()?;
         let snap = telemetry::TelemetrySnapshot::build(&client)?;

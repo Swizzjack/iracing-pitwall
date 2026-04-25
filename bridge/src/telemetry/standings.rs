@@ -1,6 +1,10 @@
 //! 4-Hz-Snapshot: CarIdx-basierte Standings inkl. berechneter Gaps.
 
+use crate::error::Result;
+use crate::iracing_sdk::types::SessionInfoYaml;
+use crate::iracing_sdk::IRacingClient;
 use serde::Serialize;
+use std::collections::HashMap;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -25,14 +29,95 @@ pub struct StandingEntry {
     pub lap_dist_pct: f32,
     pub last_lap_time: f32,
     pub best_lap_time: f32,
-    /// Sekunden hinter Leader. `None` = noch keine valide Rundenzeit.
+    /// Seconds behind the leader's best lap. `None` = no valid lap time yet.
     pub gap_to_leader: Option<f32>,
     pub on_pit_road: bool,
     pub incidents: i32,
 }
 
 impl StandingsSnapshot {
-    pub fn build() -> Self {
-        todo!("merge CarIdx* arrays with active-session ResultsPositions + DriverInfo")
+    /// Builds a standings snapshot by merging live CarIdx telemetry arrays with
+    /// YAML DriverInfo (names/numbers) and ResultsPositions (gap calculation).
+    pub fn build(client: &IRacingClient, yaml: &SessionInfoYaml) -> Result<Self> {
+        let session_num = client.get_i32("SessionNum")?;
+
+        let current_session = yaml
+            .session_info
+            .sessions
+            .iter()
+            .find(|s| s.session_num == session_num);
+
+        let session_type = current_session
+            .map(|s| s.session_type.clone())
+            .unwrap_or_default();
+
+        // CarIdx telemetry arrays — one element per car slot (up to 64).
+        let positions = client.get_i32_array("CarIdxPosition")?;
+        let class_positions = client.get_i32_array("CarIdxClassPosition")?;
+        let laps = client.get_i32_array("CarIdxLap")?;
+        let lap_dist_pcts = client.get_f32_array("CarIdxLapDistPct")?;
+        let last_lap_times = client.get_f32_array("CarIdxLastLapTime")?;
+        let best_lap_times = client.get_f32_array("CarIdxBestLapTime")?;
+        let on_pit = client.get_bool_array("CarIdxOnPitRoad")?;
+        // Incidents may be absent in older iRacing builds — default to 0.
+        let incidents = client.get_i32_array("CarIdxTeamIncidentCount").ok();
+
+        // Build a car_idx → ResultPosition lookup for gap calculation.
+        // Gap = entry.fastest_time − leader.fastest_time (works for all session types).
+        let results_map: HashMap<i32, &crate::iracing_sdk::types::ResultPosition> = current_session
+            .and_then(|s| s.results_positions.as_ref())
+            .map(|rp| rp.iter().map(|r| (r.car_idx, r)).collect())
+            .unwrap_or_default();
+
+        let leader_fastest: Option<f64> = results_map
+            .values()
+            .find(|r| r.position == 1 && r.fastest_time > 0.0)
+            .map(|r| r.fastest_time);
+
+        let mut entries: Vec<StandingEntry> = yaml
+            .driver_info
+            .drivers
+            .iter()
+            .filter_map(|driver| {
+                let idx = driver.car_idx as usize;
+                let pos = *positions.get(idx)?;
+                // position == 0 means the car hasn't entered the session yet.
+                if pos == 0 {
+                    return None;
+                }
+
+                let gap_to_leader = match (leader_fastest, results_map.get(&driver.car_idx)) {
+                    (Some(lft), Some(res)) if res.fastest_time > 0.0 => {
+                        Some((res.fastest_time - lft) as f32)
+                    }
+                    _ => None,
+                };
+
+                Some(StandingEntry {
+                    car_idx: driver.car_idx,
+                    position: pos,
+                    class_position: *class_positions.get(idx).unwrap_or(&0),
+                    user_name: driver.user_name.clone(),
+                    car_number: driver.car_number.clone(),
+                    lap: *laps.get(idx).unwrap_or(&0),
+                    lap_dist_pct: *lap_dist_pcts.get(idx).unwrap_or(&0.0),
+                    last_lap_time: *last_lap_times.get(idx).unwrap_or(&-1.0),
+                    best_lap_time: *best_lap_times.get(idx).unwrap_or(&-1.0),
+                    gap_to_leader,
+                    on_pit_road: *on_pit.get(idx).unwrap_or(&false),
+                    incidents: incidents
+                        .and_then(|arr| arr.get(idx).copied())
+                        .unwrap_or(0),
+                })
+            })
+            .collect();
+
+        entries.sort_unstable_by_key(|e| e.position);
+
+        Ok(Self {
+            session_num,
+            session_type,
+            entries,
+        })
     }
 }
