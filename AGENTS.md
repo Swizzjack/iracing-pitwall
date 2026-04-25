@@ -1,5 +1,10 @@
 # iRacing Pitwall v2 — Agent Rules
 
+## Project plan
+
+The full implementation roadmap, struct definitions, and task status live in
+`@IRACING_PITWALL_PROJECT_PLAN.md`. Read it before starting any task.
+
 ## Projekt-Layout
 
 - `bridge/` — Rust (iRacing SDK Reader + WebSocket-Server)
