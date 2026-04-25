@@ -154,6 +154,30 @@ impl IRacingClient {
         &self.header
     }
 
+    /// Raw YAML slice from the MMF (ISO-8859-1, NUL-padded tail).
+    /// Valid until the next `wait_for_frame()` call.
+    pub fn session_info_bytes(&self) -> &[u8] {
+        #[cfg(windows)]
+        {
+            let off = self.header.session_info_offset as usize;
+            let len = self.header.session_info_len as usize;
+            // SAFETY: view_ptr + (off..off+len) is within the MMF as guaranteed
+            // by the iRacing SDK layout. Lifetied to &self, which keeps the
+            // mapping alive (UnmapViewOfFile only in Drop).
+            unsafe { std::slice::from_raw_parts(self.view_ptr.add(off), len) }
+        }
+        #[cfg(not(windows))]
+        {
+            &[]
+        }
+    }
+
+    /// Update counter that increments when iRacing rewrites the YAML.
+    /// Sourced from the header snapshot; refreshed by each `wait_for_frame()`.
+    pub fn session_info_update(&self) -> i32 {
+        self.header.session_info_update
+    }
+
     pub fn var_index(&self) -> &VarIndex {
         &self.var_index
     }

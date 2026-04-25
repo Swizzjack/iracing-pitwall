@@ -31,11 +31,24 @@ async fn main() -> Result<()> {
     run_demo_loop()
 }
 
-/// Task 3+4 acceptance: 10 frames with live telemetry values.
+/// Task 3+4+5 acceptance: session info once, then 10 frames of telemetry.
 #[cfg(windows)]
 fn run_demo_loop() -> Result<()> {
     let mut client = iracing_sdk::IRacingClient::connect()?;
     client.parse_var_index()?;
+
+    client.wait_for_frame()?;
+    match iracing_sdk::yaml::decode_and_parse(client.session_info_bytes()) {
+        Ok(info) => log::info!(
+            "SessionInfo: track={} sessions={} drivers={} update={}",
+            info.weekend_info.track_name,
+            info.session_info.sessions.len(),
+            info.driver_info.drivers.len(),
+            client.session_info_update(),
+        ),
+        Err(e) => log::warn!("SessionInfo parse failed: {e}"),
+    }
+
     for _ in 0..10 {
         client.wait_for_frame()?;
         log::info!(

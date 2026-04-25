@@ -1,0 +1,34 @@
+WeekendInfo:
+ TrackName: okayama short
+ TrackDisplayName: Okayama International Circuit (Short)
+ SeriesID: 0
+ SessionID: 0
+ SubSessionID: 0
+
+SessionInfo:
+ Sessions:
+ - SessionNum: 0
+   SessionType: Race
+   SessionName: RACE
+ - SessionNum: 1
+   SessionType: Practice
+   SessionName: PRACTICE
+
+DriverInfo:
+ DriverCarIdx: 1
+ Drivers:
+ - CarIdx: 0
+   UserName: Alice Smith
+   CarNumber: "42"
+   CarClassID: 0
+   IRating: 2000
+ - CarIdx: 1
+   UserName: Bob Jones
+   CarNumber: "7"
+   CarClassID: 0
+   IRating: 1500
+ - CarIdx: 2
+   UserName: Carol Meyer
+   CarNumber: "99"
+   CarClassID: 0
+   IRating: 3000

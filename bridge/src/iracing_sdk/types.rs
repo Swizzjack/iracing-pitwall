@@ -89,6 +89,7 @@ pub struct DriverEntry {
     pub car_idx: i32,
     pub user_name: String,
     pub car_number: String,
+    #[serde(rename = "CarClassID")]
     pub car_class_id: i32,
     pub car_class_short_name: Option<String>,
     #[serde(rename = "IRating", default)]

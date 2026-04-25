@@ -12,6 +12,33 @@ pub fn decode_and_parse(raw: &[u8]) -> Result<SessionInfoYaml> {
     if had_errors {
         log::warn!("YAML decode had replacement errors (non-ISO-8859-1 bytes encountered)");
     }
-    serde_yaml::from_str::<SessionInfoYaml>(&decoded)
+    let trimmed = decoded.trim_end_matches('\0');
+    serde_yaml::from_str::<SessionInfoYaml>(trimmed)
         .map_err(|e| BridgeError::YamlParse(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Fixture lives in bridge/tests/fixtures/ — path relative to this source file.
+    const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/session_minimal.yaml");
+
+    #[test]
+    fn parses_fixture_clean() {
+        let info = decode_and_parse(FIXTURE).expect("fixture should parse");
+        assert_eq!(info.weekend_info.track_name, "okayama short");
+        assert_eq!(info.session_info.sessions.len(), 2);
+        assert_eq!(info.driver_info.drivers.len(), 3);
+    }
+
+    #[test]
+    fn parses_fixture_with_nul_tail() {
+        let mut padded = FIXTURE.to_vec();
+        padded.extend_from_slice(&[0u8; 1024]);
+        let info = decode_and_parse(&padded).expect("NUL-padded fixture should parse");
+        assert_eq!(info.weekend_info.track_name, "okayama short");
+        assert!(info.session_info.sessions.len() >= 1);
+        assert!(info.driver_info.drivers.len() >= 2);
+    }
 }
