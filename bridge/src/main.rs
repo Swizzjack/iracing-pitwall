@@ -51,13 +51,15 @@ fn run_demo_loop() -> Result<()> {
 
     for _ in 0..10 {
         client.wait_for_frame()?;
+        let snap = telemetry::TelemetrySnapshot::build(&client)?;
         log::info!(
-            "Speed={:.2} m/s  Throttle={:.0}%  RPM={:.0}  Gear={}  SessionTime={:.3}",
-            client.get_f32("Speed")?,
-            client.get_f32("Throttle")? * 100.0,
-            client.get_f32("RPM")?,
-            client.get_i32("Gear")?,
-            client.get_f64("SessionTime")?,
+            "Speed={:.1} m/s  Gear={}  Lap={}  Fuel={:.1}%  Pos={}  Pit={}",
+            snap.speed_ms,
+            snap.gear,
+            snap.lap,
+            snap.fuel_level_pct * 100.0,
+            snap.player_position,
+            snap.on_pit_road,
         );
     }
     Ok(())
