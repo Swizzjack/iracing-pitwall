@@ -26,4 +26,10 @@ pub enum BridgeError {
     Json(#[from] serde_json::Error),
 }
 
+impl From<axum::Error> for BridgeError {
+    fn from(e: axum::Error) -> Self {
+        BridgeError::WebSocket(e.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, BridgeError>;
