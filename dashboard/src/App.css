@@ -227,6 +227,17 @@ main > section:nth-child(3) {
   color: #facc15;
 }
 
+.standings tr.class-divider td {
+  border-top: 2px solid #2c2c2c;
+}
+
+.standings td.cls {
+  color: #9ca3af;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 details summary {
   cursor: pointer;
   margin-top: 12px;

@@ -23,13 +23,16 @@ pub struct StandingEntry {
     pub car_idx: i32,
     pub position: i32,
     pub class_position: i32,
+    pub car_class_id: i32,
+    pub car_class_short_name: String,
     pub user_name: String,
     pub car_number: String,
     pub lap: i32,
     pub lap_dist_pct: f32,
     pub last_lap_time: f32,
     pub best_lap_time: f32,
-    /// Seconds behind the leader's best lap. `None` = no valid lap time yet.
+    /// Seconds behind the in-class leader. Race: `CarIdxF2Time`. Practice/Qualify:
+    /// `driver.fastest_time − class_leader.fastest_time`. `None` = no valid data yet.
     pub gap_to_leader: Option<f32>,
     pub on_pit_road: bool,
     pub incidents: i32,
@@ -61,18 +64,37 @@ impl StandingsSnapshot {
         let on_pit = client.get_bool_array("CarIdxOnPitRoad")?;
         // Incidents may be absent in older iRacing builds — default to 0.
         let incidents = client.get_i32_array("CarIdxTeamIncidentCount").ok();
+        // F2Time = seconds behind in-class leader during a race; absent in older
+        // builds and meaningless outside race sessions, so it's optional.
+        let f2_times = client.get_f32_array("CarIdxF2Time").ok();
 
-        // Build a car_idx → ResultPosition lookup for gap calculation.
-        // Gap = entry.fastest_time − leader.fastest_time (works for all session types).
+        // Build a car_idx → ResultPosition lookup for fastest-time fallback.
         let results_map: HashMap<i32, &crate::iracing_sdk::types::ResultPosition> = current_session
             .and_then(|s| s.results_positions.as_ref())
             .map(|rp| rp.iter().map(|r| (r.car_idx, r)).collect())
             .unwrap_or_default();
 
-        let leader_fastest: Option<f64> = results_map
-            .values()
-            .find(|r| r.position == 1 && r.fastest_time > 0.0)
-            .map(|r| r.fastest_time);
+        // Per-class fastest time, used for non-race gap calculation.
+        // class_id → min(fastest_time) across drivers of that class with a valid lap.
+        let mut class_leader_fastest: HashMap<i32, f64> = HashMap::new();
+        for driver in &yaml.driver_info.drivers {
+            if let Some(res) = results_map.get(&driver.car_idx) {
+                if res.fastest_time > 0.0 {
+                    class_leader_fastest
+                        .entry(driver.car_class_id)
+                        .and_modify(|t| {
+                            if res.fastest_time < *t {
+                                *t = res.fastest_time;
+                            }
+                        })
+                        .or_insert(res.fastest_time);
+                }
+            }
+        }
+
+        // Race sessions get gaps from CarIdxF2Time (already per-class). Other
+        // session types fall back to per-class best-lap delta.
+        let is_race = session_type.eq_ignore_ascii_case("Race");
 
         let mut entries: Vec<StandingEntry> = yaml
             .driver_info
@@ -87,12 +109,26 @@ impl StandingsSnapshot {
                 }
 
                 let res = results_map.get(&driver.car_idx);
+                let class_pos = *class_positions.get(idx).unwrap_or(&0);
 
-                let gap_to_leader = match (leader_fastest, res) {
-                    (Some(lft), Some(r)) if r.fastest_time > 0.0 => {
-                        Some((r.fastest_time - lft) as f32)
+                let gap_to_leader: Option<f32> = if is_race {
+                    let raw = f2_times.as_ref().and_then(|arr| arr.get(idx).copied());
+                    match raw {
+                        Some(t) if t > 0.0 => Some(t),
+                        Some(t) if t == 0.0 && class_pos == 1 => Some(0.0),
+                        _ => None,
                     }
-                    _ => None,
+                } else {
+                    let driver_fastest = res.map(|r| r.fastest_time).unwrap_or(0.0);
+                    let leader_fastest = class_leader_fastest
+                        .get(&driver.car_class_id)
+                        .copied()
+                        .unwrap_or(0.0);
+                    if driver_fastest > 0.0 && leader_fastest > 0.0 {
+                        Some((driver_fastest - leader_fastest) as f32)
+                    } else {
+                        None
+                    }
                 };
 
                 // For drivers who left the server the live CarIdx arrays return -1.
@@ -118,7 +154,9 @@ impl StandingsSnapshot {
                 Some(StandingEntry {
                     car_idx: driver.car_idx,
                     position: pos,
-                    class_position: *class_positions.get(idx).unwrap_or(&0),
+                    class_position: class_pos,
+                    car_class_id: driver.car_class_id,
+                    car_class_short_name: driver.car_class_short_name.clone().unwrap_or_default(),
                     user_name: driver.user_name.clone(),
                     car_number: driver.car_number.clone(),
                     lap: *laps.get(idx).unwrap_or(&0),
