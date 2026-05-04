@@ -38,7 +38,7 @@ mod tests {
         padded.extend_from_slice(&[0u8; 1024]);
         let info = decode_and_parse(&padded).expect("NUL-padded fixture should parse");
         assert_eq!(info.weekend_info.track_name, "okayama short");
-        assert!(info.session_info.sessions.len() >= 1);
+        assert!(!info.session_info.sessions.is_empty());
         assert!(info.driver_info.drivers.len() >= 2);
     }
 }

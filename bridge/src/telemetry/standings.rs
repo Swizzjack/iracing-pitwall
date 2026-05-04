@@ -86,11 +86,33 @@ impl StandingsSnapshot {
                     return None;
                 }
 
-                let gap_to_leader = match (leader_fastest, results_map.get(&driver.car_idx)) {
-                    (Some(lft), Some(res)) if res.fastest_time > 0.0 => {
-                        Some((res.fastest_time - lft) as f32)
+                let res = results_map.get(&driver.car_idx);
+
+                let gap_to_leader = match (leader_fastest, res) {
+                    (Some(lft), Some(r)) if r.fastest_time > 0.0 => {
+                        Some((r.fastest_time - lft) as f32)
                     }
                     _ => None,
+                };
+
+                // For drivers who left the server the live CarIdx arrays return -1.
+                // Fall back to the session-historical times stored in ResultsPositions.
+                let live_last = *last_lap_times.get(idx).unwrap_or(&-1.0);
+                let last_lap_time = if live_last > 0.0 {
+                    live_last
+                } else {
+                    res.filter(|r| r.last_time > 0.0)
+                        .map(|r| r.last_time as f32)
+                        .unwrap_or(-1.0)
+                };
+
+                let live_best = *best_lap_times.get(idx).unwrap_or(&-1.0);
+                let best_lap_time = if live_best > 0.0 {
+                    live_best
+                } else {
+                    res.filter(|r| r.fastest_time > 0.0)
+                        .map(|r| r.fastest_time as f32)
+                        .unwrap_or(-1.0)
                 };
 
                 Some(StandingEntry {
@@ -101,13 +123,11 @@ impl StandingsSnapshot {
                     car_number: driver.car_number.clone(),
                     lap: *laps.get(idx).unwrap_or(&0),
                     lap_dist_pct: *lap_dist_pcts.get(idx).unwrap_or(&0.0),
-                    last_lap_time: *last_lap_times.get(idx).unwrap_or(&-1.0),
-                    best_lap_time: *best_lap_times.get(idx).unwrap_or(&-1.0),
+                    last_lap_time,
+                    best_lap_time,
                     gap_to_leader,
                     on_pit_road: *on_pit.get(idx).unwrap_or(&false),
-                    incidents: incidents
-                        .and_then(|arr| arr.get(idx).copied())
-                        .unwrap_or(0),
+                    incidents: incidents.and_then(|arr| arr.get(idx).copied()).unwrap_or(0),
                 })
             })
             .collect();
