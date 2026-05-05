@@ -80,6 +80,7 @@ fn sdk_loop(
 
     let mut last_si_update: i32 = -1;
     let mut yaml_cache: Option<iracing_sdk::types::SessionInfoYaml> = None;
+    let mut pit_tracker = telemetry::pit_tracker::PitTracker::default();
     let mut frame: u64 = 0;
 
     loop {
@@ -97,7 +98,12 @@ fn sdk_loop(
                 last_si_update = cur;
             }
             if let Some(ref y) = yaml_cache {
-                let _ = std_tx.send(Some(telemetry::StandingsSnapshot::build(&client, y)?));
+                pit_tracker.update(&client)?;
+                let _ = std_tx.send(Some(telemetry::StandingsSnapshot::build(
+                    &client,
+                    y,
+                    &pit_tracker,
+                )?));
             }
         }
 

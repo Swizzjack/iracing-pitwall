@@ -7,6 +7,7 @@ interface Props {
 }
 
 const fmtGap = (g: number | null) => (g == null ? '—' : g === 0 ? '—' : `+${g.toFixed(3)}`)
+const fmtSec = (s: number) => s.toFixed(1) + 's'
 
 export function Standings({ snap, playerCarIdx }: Props) {
   if (!snap) {
@@ -60,7 +61,13 @@ export function Standings({ snap, playerCarIdx }: Props) {
                 <td>{fmtLapTime(e.lastLapTime)}</td>
                 <td>{fmtLapTime(e.bestLapTime)}</td>
                 <td>{fmtGap(e.gapToLeader)}</td>
-                <td>{e.onPitRoad ? '●' : ''}</td>
+                <td>
+                  {e.currentPitRoadSec != null
+                    ? `● ${fmtSec(e.currentPitRoadSec)}`
+                    : e.lastPitRoadSec != null
+                    ? <span className="muted">({fmtSec(e.lastPitRoadSec)})</span>
+                    : ''}
+                </td>
                 <td>{e.incidents}</td>
               </tr>
             )

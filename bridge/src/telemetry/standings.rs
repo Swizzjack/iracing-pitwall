@@ -3,6 +3,7 @@
 use crate::error::Result;
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::iracing_sdk::IRacingClient;
+use crate::telemetry::pit_tracker::PitTracker;
 use serde::Serialize;
 use std::collections::HashMap;
 use ts_rs::TS;
@@ -36,12 +37,19 @@ pub struct StandingEntry {
     pub gap_to_leader: Option<f32>,
     pub on_pit_road: bool,
     pub incidents: i32,
+    pub pit_stops: u32,
+    pub last_pit_road_sec: Option<f32>,
+    pub current_pit_road_sec: Option<f32>,
 }
 
 impl StandingsSnapshot {
     /// Builds a standings snapshot by merging live CarIdx telemetry arrays with
     /// YAML DriverInfo (names/numbers) and ResultsPositions (gap calculation).
-    pub fn build(client: &IRacingClient, yaml: &SessionInfoYaml) -> Result<Self> {
+    pub fn build(
+        client: &IRacingClient,
+        yaml: &SessionInfoYaml,
+        pit_tracker: &PitTracker,
+    ) -> Result<Self> {
         let session_num = client.get_i32("SessionNum")?;
 
         let current_session = yaml
@@ -151,6 +159,7 @@ impl StandingsSnapshot {
                         .unwrap_or(-1.0)
                 };
 
+                let pit = pit_tracker.get(driver.car_idx);
                 Some(StandingEntry {
                     car_idx: driver.car_idx,
                     position: pos,
@@ -166,6 +175,9 @@ impl StandingsSnapshot {
                     gap_to_leader,
                     on_pit_road: *on_pit.get(idx).unwrap_or(&false),
                     incidents: incidents.and_then(|arr| arr.get(idx).copied()).unwrap_or(0),
+                    pit_stops: pit.map_or(0, |p| p.pit_stops),
+                    last_pit_road_sec: pit.and_then(|p| p.last_pit_road_sec),
+                    current_pit_road_sec: pit.and_then(|p| p.current_pit_road_sec),
                 })
             })
             .collect();
