@@ -23,53 +23,55 @@ export function Telemetry({ snap }: Props) {
   return (
     <section className="card">
       <h2>Telemetry</h2>
-      <div className="big-row">
-        <div className="big-stat">
-          <div className="big-value">{fmt(kmh(snap.speedMs), 0)}</div>
-          <div className="big-label">km/h</div>
+      <div className="card-body">
+        <div className="big-row">
+          <div className="big-stat">
+            <div className="big-value">{fmt(kmh(snap.speedMs), 0)}</div>
+            <div className="big-label">km/h</div>
+          </div>
+          <div className="big-stat">
+            <div className="big-value">{gearLabel(snap.gear)}</div>
+            <div className="big-label">gear</div>
+          </div>
+          <div className="big-stat">
+            <div className="big-value">{fmt(snap.rpm, 0)}</div>
+            <div className="big-label">rpm</div>
+          </div>
         </div>
-        <div className="big-stat">
-          <div className="big-value">{gearLabel(snap.gear)}</div>
-          <div className="big-label">gear</div>
-        </div>
-        <div className="big-stat">
-          <div className="big-value">{fmt(snap.rpm, 0)}</div>
-          <div className="big-label">rpm</div>
-        </div>
-      </div>
 
-      <div className="bars">
-        <Bar label="throttle" value={snap.throttle} color="#22c55e" />
-        <Bar label="brake" value={snap.brake} color="#ef4444" />
-      </div>
+        <div className="bars">
+          <Bar label="throttle" value={snap.throttle} color="#22c55e" />
+          <Bar label="brake" value={snap.brake} color="#ef4444" />
+        </div>
 
-      <dl className="kv">
-        <dt>lap</dt>
-        <dd>{snap.lap}</dd>
-        <dt>lap dist</dt>
-        <dd>{fmt(snap.lapDistPct * 100, 1)} %</dd>
-        <dt>cur lap</dt>
-        <dd>{fmtLapTime(snap.lapCurrentTime)}</dd>
-        <dt>last lap</dt>
-        <dd>{fmtLapTime(snap.lapLastTime)}</dd>
-        <dt>best lap</dt>
-        <dd>{fmtLapTime(snap.lapBestTime)}</dd>
-        <dt>fuel</dt>
-        <dd>{fmt(snap.fuelLevel, 2)} L ({fmt(snap.fuelLevelPct * 100, 0)} %)</dd>
-        <dt>fuel/h</dt>
-        <dd>{fmt(snap.fuelUsePerHour, 2)} L/h</dd>
-        <dt>position</dt>
-        <dd>{snap.playerPosition} (cls {snap.playerClassPosition})</dd>
-        <dt>track / air</dt>
-        <dd>{fmt(snap.trackTemp, 1)} °C / {fmt(snap.airTemp, 1)} °C</dd>
-        <dt>flags</dt>
-        <dd className="mono">
-          {snap.isOnTrack ? 'on-track ' : ''}
-          {snap.isOnTrackCar ? 'in-car ' : ''}
-          {snap.isInGarage ? 'garage ' : ''}
-          {snap.onPitRoad ? 'pit-road' : ''}
-        </dd>
-      </dl>
+        <dl className="kv">
+          <dt>lap</dt>
+          <dd>{snap.lap}</dd>
+          <dt>lap dist</dt>
+          <dd>{fmt(snap.lapDistPct * 100, 1)} %</dd>
+          <dt>cur lap</dt>
+          <dd>{fmtLapTime(snap.lapCurrentTime)}</dd>
+          <dt>last lap</dt>
+          <dd>{fmtLapTime(snap.lapLastTime)}</dd>
+          <dt>best lap</dt>
+          <dd>{fmtLapTime(snap.lapBestTime)}</dd>
+          <dt>fuel</dt>
+          <dd>{fmt(snap.fuelLevel, 2)} L ({fmt(snap.fuelLevelPct * 100, 0)} %)</dd>
+          <dt>fuel/h</dt>
+          <dd>{fmt(snap.fuelUsePerHour, 2)} L/h</dd>
+          <dt>position</dt>
+          <dd>{snap.playerPosition} (cls {snap.playerClassPosition})</dd>
+          <dt>track / air</dt>
+          <dd>{fmt(snap.trackTemp, 1)} °C / {fmt(snap.airTemp, 1)} °C</dd>
+          <dt>flags</dt>
+          <dd className="mono">
+            {snap.isOnTrack ? 'on-track ' : ''}
+            {snap.isOnTrackCar ? 'in-car ' : ''}
+            {snap.isInGarage ? 'garage ' : ''}
+            {snap.onPitRoad ? 'pit-road' : ''}
+          </dd>
+        </dl>
+      </div>
     </section>
   )
 }

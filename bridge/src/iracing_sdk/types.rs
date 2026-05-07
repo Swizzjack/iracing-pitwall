@@ -1,11 +1,35 @@
 //! YAML-SessionInfo Datenmodell.
 //!
 //! Nur die Felder, die wir fürs Dashboard brauchen. iRacing emittet deutlich
-//! mehr (CameraInfo, RadioInfo, SplitTimeInfo, CarSetup); wir ignorieren diese
-//! via `#[serde(default)]` und `deny_unknown_fields` NICHT setzen.
+//! mehr (CameraInfo, RadioInfo, CarSetup); wir ignorieren diese via
+//! `#[serde(default)]` und `deny_unknown_fields` NICHT setzen.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+/// Tolerant color deserializer: accepts integer, valid "0x…" hex string, or any
+/// garbage string (e.g. "0xundefined" from iRacing offline-test sessions) → None.
+fn deserialize_color<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct ColorVisitor;
+    impl<'de> serde::de::Visitor<'de> for ColorVisitor {
+        type Value = Option<i64>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "an integer or hex color string")
+        }
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Option<i64>, E> { Ok(Some(v)) }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Option<i64>, E> { Ok(Some(v as i64)) }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Option<i64>, E> {
+            let hex = v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")).unwrap_or(v);
+            Ok(i64::from_str_radix(hex, 16).ok())
+        }
+        fn visit_none<E: serde::de::Error>(self) -> Result<Option<i64>, E> { Ok(None) }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Option<i64>, E> { Ok(None) }
+    }
+    deserializer.deserialize_any(ColorVisitor)
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "../shared/")]
@@ -16,6 +40,39 @@ pub struct SessionInfoYaml {
     pub session_info: SessionInfoBlock,
     #[serde(rename = "DriverInfo")]
     pub driver_info: DriverInfo,
+    #[serde(rename = "SplitTimeInfo", default)]
+    pub split_time_info: Option<SplitTimeInfo>,
+}
+
+impl SessionInfoYaml {
+    /// Returns sorted sector start percentages > 0.0 (S/F at 0.0 is drawn separately).
+    pub fn sector_starts(&self) -> Vec<f32> {
+        let Some(ref sti) = self.split_time_info else { return vec![] };
+        let mut starts: Vec<f32> = sti
+            .sectors
+            .iter()
+            .map(|s| s.sector_start_pct)
+            .filter(|&p| p > 0.001)
+            .collect();
+        starts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        starts.dedup_by(|a, b| (*a - *b).abs() < 0.001);
+        starts
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "../shared/")]
+pub struct SplitTimeInfo {
+    #[serde(rename = "Sectors", default)]
+    pub sectors: Vec<SectorInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "../shared/")]
+#[serde(rename_all = "PascalCase")]
+pub struct SectorInfo {
+    pub sector_num: i32,
+    pub sector_start_pct: f32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -25,6 +82,12 @@ pub struct WeekendInfo {
     pub track_name: String,
     #[serde(rename = "TrackDisplayName", default)]
     pub track_display_name: String,
+    #[serde(rename = "TrackID", default)]
+    pub track_id: i64,
+    #[serde(rename = "TrackConfigName", default)]
+    pub track_config_name: String,
+    #[serde(rename = "TrackLength", default)]
+    pub track_length: String,
     #[serde(rename = "SeriesID", default)]
     pub series_id: i32,
     #[serde(rename = "SessionID", default)]
@@ -92,6 +155,14 @@ pub struct DriverEntry {
     #[serde(rename = "CarClassID")]
     pub car_class_id: i32,
     pub car_class_short_name: Option<String>,
+    #[serde(rename = "CarClassColor", default, deserialize_with = "deserialize_color")]
+    pub car_class_color: Option<i64>,
+    #[serde(rename = "CarScreenNameShort", default)]
+    pub car_screen_name_short: Option<String>,
     #[serde(rename = "IRating", default)]
     pub irating: i32,
+    #[serde(rename = "LicString", default)]
+    pub lic_string: String,
+    #[serde(rename = "LicColor", default, deserialize_with = "deserialize_color")]
+    pub lic_color: Option<i64>,
 }

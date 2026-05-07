@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import type { LayoutItem } from 'react-grid-layout'
 import type { ServerMessage } from '@shared/ServerMessage'
 import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
 import type { StandingsSnapshot } from '@shared/StandingsSnapshot'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
+import type { TrackMapSnapshot } from '@shared/TrackMapSnapshot'
 import { WsClient, type ConnectionState } from './ws/Client'
-import { Telemetry } from './widgets/Telemetry'
-import { Standings } from './widgets/Standings'
-import { SessionInfo } from './widgets/SessionInfo'
+import { Dashboard } from './layout/Dashboard'
+import { EditToolbar } from './layout/EditToolbar'
+import { loadLayout, saveLayout, resetLayout, type StoredLayout } from './layout/storage'
 import './App.css'
 
 const WS_URL = import.meta.env.DEV
@@ -19,10 +21,26 @@ function App() {
   const [tel, setTel] = useState<TelemetrySnapshot | null>(null)
   const [standings, setStandings] = useState<StandingsSnapshot | null>(null)
   const [info, setInfo] = useState<SessionInfoYaml | null>(null)
+  const [trackMap, setTrackMap] = useState<TrackMapSnapshot | null>(null)
+  const [isFs, setIsFs] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [stored, setStored] = useState<StoredLayout>(loadLayout)
 
-  // 60 Hz telemetry → throttle to one render per animation frame.
+  // 60 Hz telemetry → throttle to one render per animation frame
   const pendingTel = useRef<TelemetrySnapshot | null>(null)
   const rafScheduled = useRef(false)
+  const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const onChange = () => setIsFs(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  const toggleFs = () => {
+    if (document.fullscreenElement) document.exitFullscreen()
+    else document.documentElement.requestFullscreen()
+  }
 
   useEffect(() => {
     const client = new WsClient(WS_URL)
@@ -48,6 +66,9 @@ function App() {
         case 'sessionInfo':
           setInfo(msg.info)
           break
+        case 'trackMap':
+          setTrackMap(msg.snapshot)
+          break
         case 'sdkStatus':
         case 'disconnected':
           break
@@ -61,20 +82,68 @@ function App() {
     }
   }, [])
 
+  function handleLayoutChange(newLayout: readonly LayoutItem[]) {
+    setStored((prev) => {
+      const next = { ...prev, layout: [...newLayout] }
+      if (saveTimeout.current) clearTimeout(saveTimeout.current)
+      saveTimeout.current = setTimeout(() => saveLayout(next), 200)
+      return next
+    })
+  }
+
+  function handleRemove(id: string) {
+    setStored((prev) => {
+      const next = { ...prev, visible: prev.visible.filter((v) => v !== id) }
+      saveLayout(next)
+      return next
+    })
+  }
+
+  function handleAdd(id: string) {
+    setStored((prev) => {
+      if (prev.visible.includes(id)) return prev
+      const next = { ...prev, visible: [...prev.visible, id] }
+      saveLayout(next)
+      return next
+    })
+  }
+
+  function handleReset() {
+    const defaults = resetLayout()
+    setStored(defaults)
+  }
+
   return (
     <div className="app">
       <header>
         <h1>iRacing Pitwall</h1>
-        <div className={`status status-${conn}`}>
-          <span className="dot" />
-          {conn}
-          {bridgeVersion && <span className="ver">v{bridgeVersion}</span>}
+        <div className="header-right">
+          <div className={`status status-${conn}`}>
+            <span className="dot" />
+            {conn}
+            {bridgeVersion && <span className="ver">v{bridgeVersion}</span>}
+          </div>
+          <EditToolbar
+            editing={editing}
+            visible={stored.visible}
+            onToggleEdit={() => setEditing((e) => !e)}
+            onAdd={handleAdd}
+            onReset={handleReset}
+          />
+          <button className="fs-btn" onClick={toggleFs} title={isFs ? 'Exit fullscreen' : 'Enter fullscreen'}>
+            {isFs ? '⤡' : '⤢'}
+          </button>
         </div>
       </header>
       <main>
-        <Telemetry snap={tel} />
-        <SessionInfo info={info} />
-        <Standings snap={standings} playerCarIdx={tel?.playerCarIdx ?? null} />
+        <Dashboard
+          data={{ tel, standings, info, trackMap }}
+          visible={stored.visible}
+          layout={stored.layout}
+          editing={editing}
+          onLayoutChange={handleLayoutChange}
+          onRemove={handleRemove}
+        />
       </main>
     </div>
   )

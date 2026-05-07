@@ -61,30 +61,49 @@ header h1 {
 }
 
 main {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  padding: 16px;
   flex: 1;
+  overflow: auto;
 }
 
-main > section:nth-child(3) {
-  grid-column: 1 / -1;
-}
+/* ── Card base ─────────────────────────────────────────────────────────── */
 
 .card {
+  container-type: size;
+  container-name: widget;
   background: #141414;
   border: 1px solid #222;
   border-radius: 6px;
-  padding: 16px;
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .card h2 {
-  margin: 0 0 12px;
-  font-size: 14px;
+  flex: 0 0 auto;
+  margin: 0 0 10px;
+  font-size: clamp(11px, 4cqh, 16px);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #f97316;
+  cursor: default;
+  user-select: none;
+}
+
+/* In edit mode: h2 becomes drag handle */
+.editing .card > h2 {
+  cursor: grab;
+}
+.editing .card > h2:active {
+  cursor: grabbing;
+}
+
+.card-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
 }
 
 .muted {
@@ -96,11 +115,12 @@ main > section:nth-child(3) {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* Telemetry */
+/* ── Telemetry ──────────────────────────────────────────────────────────── */
+
 .big-row {
   display: flex;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .big-stat {
@@ -109,19 +129,19 @@ main > section:nth-child(3) {
   background: #0a0a0a;
   border: 1px solid #1f1f1f;
   border-radius: 6px;
-  padding: 12px 8px;
+  padding: 8px 6px;
 }
 
 .big-value {
   font-family: 'Teko', 'Roboto Condensed', sans-serif;
-  font-size: 48px;
+  font-size: clamp(22px, 10cqh, 56px);
   line-height: 1;
   color: #facc15;
   font-variant-numeric: tabular-nums;
 }
 
 .big-label {
-  font-size: 11px;
+  font-size: clamp(9px, 2cqh, 12px);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: #666;
@@ -132,7 +152,7 @@ main > section:nth-child(3) {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .bar {
@@ -167,7 +187,8 @@ main > section:nth-child(3) {
   text-align: right;
 }
 
-/* Key-value list */
+/* ── Key-value list ─────────────────────────────────────────────────────── */
+
 .kv {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -191,7 +212,8 @@ main > section:nth-child(3) {
   color: #ddd;
 }
 
-/* Standings */
+/* ── Standings ──────────────────────────────────────────────────────────── */
+
 .standings {
   width: 100%;
   border-collapse: collapse;
@@ -231,12 +253,199 @@ main > section:nth-child(3) {
   border-top: 2px solid #2c2c2c;
 }
 
-.standings td.cls {
-  color: #9ca3af;
+.class-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
 }
+
+.class-badge-pos {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.standings td.manufacturer {
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.lic-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lic-badge-letter {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.lic-badge-sr {
+  color: #ddd;
+}
+
+.ir-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #1e293b;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Header buttons ─────────────────────────────────────────────────────── */
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header-btn {
+  background: transparent;
+  color: #888;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 4px 9px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.header-btn:hover {
+  color: #ccc;
+  border-color: #555;
+}
+
+.header-btn-active {
+  color: #facc15;
+  border-color: #facc15;
+  background: #facc1510;
+}
+
+.header-btn-danger:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+}
+
+.fs-btn {
+  background: transparent;
+  color: #888;
+  border: 1px solid #222;
+  border-radius: 4px;
+  padding: 4px 9px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+}
+
+.fs-btn:hover {
+  color: #facc15;
+  border-color: #facc15;
+}
+
+/* ── Widget remove button ───────────────────────────────────────────────── */
+
+.widget-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 10;
+  background: #1a1a1a;
+  color: #888;
+  border: 1px solid #333;
+  border-radius: 3px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.widget-remove:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: #1f0a0a;
+}
+
+/* ── Edit mode card highlight ───────────────────────────────────────────── */
+
+.editing .react-grid-item > .card {
+  border-color: #333;
+  box-shadow: 0 0 0 1px #333;
+}
+
+.editing .react-grid-item.react-draggable-dragging > .card {
+  border-color: #facc15;
+  box-shadow: 0 0 0 1px #facc15;
+  opacity: 0.9;
+}
+
+/* Resize handle */
+.editing .react-resizable-handle {
+  opacity: 0.7;
+}
+
+.editing .react-resizable-handle::after {
+  border-color: #facc15 !important;
+}
+
+/* ── Add-widget dropdown ────────────────────────────────────────────────── */
+
+.add-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 100;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.add-menu-item {
+  background: transparent;
+  color: #ccc;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.add-menu-item:hover {
+  background: #facc1515;
+  color: #facc15;
+}
+
+/* ── details/summary ────────────────────────────────────────────────────── */
 
 details summary {
   cursor: pointer;
@@ -247,4 +456,29 @@ details ul {
   margin: 8px 0 0;
   padding-left: 18px;
   font-size: 12px;
+}
+
+/* ─── TrackMap settings panel ─────────────────────────────────────────── */
+.trackmap-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #222;
+  font-size: 12px;
+}
+.trackmap-settings label {
+  display: grid;
+  grid-template-columns: 50px 1fr 30px;
+  align-items: center;
+  gap: 8px;
+  color: #aaa;
+}
+.trackmap-settings input[type="range"] {
+  width: 100%;
+}
+.trackmap-settings span {
+  text-align: right;
+  font-family: var(--mono, monospace);
+  color: #ddd;
 }

@@ -4,6 +4,7 @@ use crate::error::Result;
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::iracing_sdk::IRacingClient;
 use crate::telemetry::pit_tracker::PitTracker;
+use crate::telemetry::sector_tracker::SectorTracker;
 use serde::Serialize;
 use std::collections::HashMap;
 use ts_rs::TS;
@@ -15,6 +16,8 @@ pub struct StandingsSnapshot {
     pub session_num: i32,
     pub session_type: String,
     pub entries: Vec<StandingEntry>,
+    /// Theoretical session-best time per sector (minimum across all cars' personal bests).
+    pub session_best_sectors: Vec<Option<f32>>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -26,8 +29,13 @@ pub struct StandingEntry {
     pub class_position: i32,
     pub car_class_id: i32,
     pub car_class_short_name: String,
+    pub car_class_color: Option<i64>,
+    pub manufacturer: Option<String>,
     pub user_name: String,
     pub car_number: String,
+    pub irating: i32,
+    pub safety_rating: String,
+    pub lic_color: Option<i64>,
     pub lap: i32,
     pub lap_dist_pct: f32,
     pub last_lap_time: f32,
@@ -40,6 +48,10 @@ pub struct StandingEntry {
     pub pit_stops: u32,
     pub last_pit_road_sec: Option<f32>,
     pub current_pit_road_sec: Option<f32>,
+    /// Sector times from the most recently completed clean lap.
+    pub last_sector_times: Vec<f32>,
+    /// Personal-best sector time per sector. None until that sector has been completed cleanly.
+    pub best_sector_times: Vec<Option<f32>>,
 }
 
 impl StandingsSnapshot {
@@ -49,6 +61,7 @@ impl StandingsSnapshot {
         client: &IRacingClient,
         yaml: &SessionInfoYaml,
         pit_tracker: &PitTracker,
+        sector_tracker: &SectorTracker,
     ) -> Result<Self> {
         let session_num = client.get_i32("SessionNum")?;
 
@@ -139,35 +152,54 @@ impl StandingsSnapshot {
                     }
                 };
 
-                // For drivers who left the server the live CarIdx arrays return -1.
-                // Fall back to the session-historical times stored in ResultsPositions.
+                // CarIdxLap < 0 means the driver has left the server — only then fall
+                // back to stale ResultsPositions data. Active drivers keep their live
+                // value even when it is -1 (invalid lap); the frontend renders -1 as '—'.
+                let live_lap = *laps.get(idx).unwrap_or(&-1);
+                let driver_departed = live_lap < 0;
+
                 let live_last = *last_lap_times.get(idx).unwrap_or(&-1.0);
                 let last_lap_time = if live_last > 0.0 {
                     live_last
-                } else {
+                } else if driver_departed {
                     res.filter(|r| r.last_time > 0.0)
                         .map(|r| r.last_time as f32)
                         .unwrap_or(-1.0)
+                } else {
+                    -1.0
                 };
 
                 let live_best = *best_lap_times.get(idx).unwrap_or(&-1.0);
                 let best_lap_time = if live_best > 0.0 {
                     live_best
-                } else {
+                } else if driver_departed {
                     res.filter(|r| r.fastest_time > 0.0)
                         .map(|r| r.fastest_time as f32)
                         .unwrap_or(-1.0)
+                } else {
+                    -1.0
                 };
 
+                let manufacturer = driver
+                    .car_screen_name_short
+                    .as_ref()
+                    .and_then(|s| s.split_whitespace().next().map(str::to_string));
+
                 let pit = pit_tracker.get(driver.car_idx);
+                let sectors = sector_tracker.get(driver.car_idx);
                 Some(StandingEntry {
                     car_idx: driver.car_idx,
                     position: pos,
                     class_position: class_pos,
                     car_class_id: driver.car_class_id,
                     car_class_short_name: driver.car_class_short_name.clone().unwrap_or_default(),
+                    car_class_color: driver.car_class_color,
+                    manufacturer,
                     user_name: driver.user_name.clone(),
                     car_number: driver.car_number.clone(),
+                    irating: driver.irating,
+                    safety_rating: driver.lic_string.clone(),
+                    lic_color: driver.lic_color,
                     lap: *laps.get(idx).unwrap_or(&0),
                     lap_dist_pct: *lap_dist_pcts.get(idx).unwrap_or(&0.0),
                     last_lap_time,
@@ -178,6 +210,8 @@ impl StandingsSnapshot {
                     pit_stops: pit.map_or(0, |p| p.pit_stops),
                     last_pit_road_sec: pit.and_then(|p| p.last_pit_road_sec),
                     current_pit_road_sec: pit.and_then(|p| p.current_pit_road_sec),
+                    last_sector_times: sectors.map(|s| s.last_sectors.clone()).unwrap_or_default(),
+                    best_sector_times: sectors.map(|s| s.personal_best.clone()).unwrap_or_default(),
                 })
             })
             .collect();
@@ -188,6 +222,7 @@ impl StandingsSnapshot {
             session_num,
             session_type,
             entries,
+            session_best_sectors: sector_tracker.session_best_sectors(),
         })
     }
 }

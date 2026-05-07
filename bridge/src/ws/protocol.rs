@@ -4,7 +4,7 @@
 
 use crate::iracing_sdk::header::HeaderStatus;
 use crate::iracing_sdk::types::SessionInfoYaml;
-use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot};
+use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -26,6 +26,9 @@ pub enum ServerMessage {
 
     #[serde(rename_all = "camelCase")]
     SessionInfo { info: SessionInfoYaml },
+
+    #[serde(rename_all = "camelCase")]
+    TrackMap { snapshot: TrackMapSnapshot },
 
     #[serde(rename_all = "camelCase")]
     Disconnected { reason: String },

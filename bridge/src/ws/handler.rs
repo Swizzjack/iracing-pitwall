@@ -19,11 +19,12 @@ use axum::{
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use rust_embed::RustEmbed;
 use tokio::net::TcpListener;
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 use crate::error::{BridgeError, Result};
 use crate::iracing_sdk::types::SessionInfoYaml;
-use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot};
+use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
+use crate::ws::lifecycle::ClientTracker;
 use crate::ws::protocol::ServerMessage;
 
 #[derive(RustEmbed)]
@@ -35,18 +36,35 @@ pub struct BridgeState {
     pub telemetry: watch::Receiver<Option<TelemetrySnapshot>>,
     pub standings: watch::Receiver<Option<StandingsSnapshot>>,
     pub session_info: watch::Receiver<Option<SessionInfoYaml>>,
+    pub track_map: watch::Receiver<Option<TrackMapSnapshot>>,
+    pub clients: ClientTracker,
 }
 
-pub async fn serve(port: u16, state: BridgeState) -> Result<()> {
+pub async fn bind(port: u16) -> Result<(SocketAddr, TcpListener)> {
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let listener = TcpListener::bind(addr).await?;
+    let local_addr = listener.local_addr()?;
+    log::info!("HTTP+WS server listening on http://{local_addr}");
+    Ok((local_addr, listener))
+}
+
+pub async fn serve(
+    listener: TcpListener,
+    state: BridgeState,
+    shutdown_rx: oneshot::Receiver<()>,
+) -> Result<()> {
     let app = Router::new()
         .route("/ws", get(ws_handler))
         .fallback(static_handler)
         .with_state(state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    let listener = TcpListener::bind(addr).await?;
-    log::info!("HTTP+WS server listening on http://{addr}");
-    axum::serve(listener, app).await?;
+    let server = async move { axum::serve(listener, app).await };
+    tokio::select! {
+        r = server => r?,
+        _ = shutdown_rx => {
+            log::info!("ws server: shutdown signal received, dropping listener");
+        }
+    }
     Ok(())
 }
 
@@ -55,6 +73,7 @@ async fn ws_handler(ws: WebSocketUpgrade, State(state): State<BridgeState>) -> R
 }
 
 async fn handle_socket(socket: WebSocket, state: BridgeState) {
+    let _guard = state.clients.guard();
     log::info!("ws client connected");
     if let Err(e) = handle_socket_inner(socket, state).await {
         log::warn!("ws client disconnected: {e}");
@@ -68,9 +87,6 @@ type WsSink = SplitSink<WebSocket, Message>;
 async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()> {
     let (mut sink, mut stream) = socket.split();
 
-    // Drain inbound — clients don't send data, but pings/close frames must be consumed.
-    tokio::spawn(async move { while stream.next().await.is_some() {} });
-
     send_msg(
         &mut sink,
         &ServerMessage::Hello {
@@ -82,11 +98,13 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
     let mut tel_rx = state.telemetry;
     let mut std_rx = state.standings;
     let mut si_rx = state.session_info;
+    let mut tm_rx = state.track_map;
 
     // Initial replay — clone immediately so the watch::Ref guard drops before any await.
     let init_tel = tel_rx.borrow_and_update().clone();
     let init_std = std_rx.borrow_and_update().clone();
     let init_si = si_rx.borrow_and_update().clone();
+    let init_tm = tm_rx.borrow_and_update().clone();
 
     if let Some(s) = init_tel {
         send_msg(&mut sink, &ServerMessage::Telemetry { snapshot: s }).await?;
@@ -97,9 +115,19 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
     if let Some(i) = init_si {
         send_msg(&mut sink, &ServerMessage::SessionInfo { info: i }).await?;
     }
+    if let Some(s) = init_tm {
+        send_msg(&mut sink, &ServerMessage::TrackMap { snapshot: s }).await?;
+    }
 
     loop {
         tokio::select! {
+            // Inbound: Pings/Close-Frames konsumieren; None oder Err = Client weg.
+            msg = stream.next() => {
+                match msg {
+                    None | Some(Err(_)) => return Ok(()),
+                    Some(Ok(_)) => {} // ignorieren
+                }
+            }
             r = tel_rx.changed() => {
                 r.map_err(|_| BridgeError::WebSocket("telemetry channel closed".into()))?;
                 let snap = tel_rx.borrow_and_update().clone();
@@ -119,6 +147,13 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
                 let info = si_rx.borrow_and_update().clone();
                 if let Some(i) = info {
                     send_msg(&mut sink, &ServerMessage::SessionInfo { info: i }).await?;
+                }
+            }
+            r = tm_rx.changed() => {
+                r.map_err(|_| BridgeError::WebSocket("track_map channel closed".into()))?;
+                let snap = tm_rx.borrow_and_update().clone();
+                if let Some(s) = snap {
+                    send_msg(&mut sink, &ServerMessage::TrackMap { snapshot: s }).await?;
                 }
             }
         }

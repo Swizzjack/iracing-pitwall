@@ -22,6 +22,7 @@ anyhow = "1"
 log = "0.4"
 simplelog = "0.12"
 ts-rs = { version = "10", features = ["serde-compat"] }
+webbrowser = "1"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.59"
