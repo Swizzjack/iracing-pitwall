@@ -94,6 +94,8 @@ pub struct WeekendInfo {
     pub session_id: i64,
     #[serde(rename = "SubSessionID", default)]
     pub sub_session_id: i64,
+    #[serde(rename = "TrackWeatherType", default)]
+    pub track_weather_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -165,4 +167,12 @@ pub struct DriverEntry {
     pub lic_string: String,
     #[serde(rename = "LicColor", default, deserialize_with = "deserialize_color")]
     pub lic_color: Option<i64>,
+    #[serde(rename = "CurDriverIncidentCount", default)]
+    pub cur_driver_incident_count: i32,
+    #[serde(rename = "TeamIncidentCount", default)]
+    pub team_incident_count: i32,
+    #[serde(rename = "IsSpectator", default)]
+    pub is_spectator: i32,
+    #[serde(rename = "CarIsPaceCar", default)]
+    pub car_is_pace_car: i32,
 }

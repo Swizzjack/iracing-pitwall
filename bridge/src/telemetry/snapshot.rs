@@ -78,6 +78,17 @@ pub struct TelemetrySnapshot {
     // Track/Weather
     pub track_temp: f32,
     pub air_temp: f32,
+    pub skies: Option<i32>,
+    pub track_wetness: Option<i32>,
+    pub weather_declared_wet: Option<bool>,
+    pub precipitation: Option<f32>,
+    pub air_pressure: Option<f32>,
+    pub air_density: Option<f32>,
+    pub relative_humidity: Option<f32>,
+    pub fog_level: Option<f32>,
+    pub wind_vel: Option<f32>,
+    pub wind_dir: Option<f32>,
+    pub session_time_of_day: Option<f32>,
 }
 
 impl TelemetrySnapshot {
@@ -156,6 +167,17 @@ impl TelemetrySnapshot {
             // Track/Weather
             track_temp: client.get_f32("TrackTempCrew")?,
             air_temp: client.get_f32("AirTemp")?,
+            skies: client.get_i32("Skies").ok(),
+            track_wetness: client.get_i32("TrackWetness").ok(),
+            weather_declared_wet: client.get_bool("WeatherDeclaredWet").ok(),
+            precipitation: client.get_f32("Precipitation").ok(),
+            air_pressure: client.get_f32("AirPressure").ok(),
+            air_density: client.get_f32("AirDensity").ok(),
+            relative_humidity: client.get_f32("RelativeHumidity").ok(),
+            fog_level: client.get_f32("FogLevel").ok(),
+            wind_vel: client.get_f32("WindVel").ok(),
+            wind_dir: client.get_f32("WindDir").ok(),
+            session_time_of_day: client.get_f32("SessionTimeOfDay").ok(),
         })
     }
 }

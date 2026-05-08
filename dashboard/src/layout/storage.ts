@@ -8,13 +8,14 @@ export type StoredLayout = {
   layout: LayoutItem[]
 }
 
-// Positions for the 5 default widgets: Telemetry + Session + Inputs on row 0, Standings + TrackMap below
 const DEFAULT_POSITIONS = [
-  { x: 0, y: 0 },
-  { x: 4, y: 0 },
-  { x: 8, y: 0 },
-  { x: 0, y: 9 },
-  { x: 6, y: 9 },
+  { x: 0, y: 0 },   // telemetry
+  { x: 4, y: 0 },   // session
+  { x: 8, y: 0 },   // telemetryInputs
+  { x: 0, y: 9 },   // standings
+  { x: 8, y: 9 },   // sof
+  { x: 0, y: 21 },  // trackMap
+  { x: 6, y: 21 },  // weather
 ]
 
 export function buildDefaultLayout(): StoredLayout {

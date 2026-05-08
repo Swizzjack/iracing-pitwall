@@ -25,7 +25,7 @@ header h1 {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   color: #888;
 }
 
@@ -79,12 +79,13 @@ main {
   height: 100%;
   overflow: hidden;
   box-sizing: border-box;
+  position: relative;
 }
 
 .card h2 {
   flex: 0 0 auto;
   margin: 0 0 10px;
-  font-size: clamp(11px, 4cqh, 16px);
+  font-size: 16px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #f97316;
@@ -112,7 +113,7 @@ main {
 }
 
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 /* ── Telemetry ──────────────────────────────────────────────────────────── */
@@ -133,7 +134,7 @@ main {
 }
 
 .big-value {
-  font-family: 'Teko', 'Roboto Condensed', sans-serif;
+  font-family: var(--font-heading);
   font-size: clamp(22px, 10cqh, 56px);
   line-height: 1;
   color: #facc15;
@@ -217,7 +218,7 @@ main {
 .standings {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: calc(13px * var(--widget-font-scale, 1));
   font-variant-numeric: tabular-nums;
 }
 
@@ -225,11 +226,46 @@ main {
   text-align: left;
   font-weight: 500;
   color: #777;
-  font-size: 11px;
+  font-size: calc(11px * var(--widget-font-scale, 1));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 6px 8px;
   border-bottom: 1px solid #222;
+  position: relative;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.standings th[data-sort] {
+  cursor: pointer;
+}
+
+.standings th[data-sort]:hover {
+  color: #bbb;
+}
+
+.standings th[data-sort='asc']::after {
+  content: ' ▲';
+  color: #60a5fa;
+}
+
+.standings th[data-sort='desc']::after {
+  content: ' ▼';
+  color: #60a5fa;
+}
+
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.col-resize-handle:hover,
+.col-resize-handle.dragging {
+  background: #60a5fa44;
 }
 
 .standings td {
@@ -256,13 +292,10 @@ main {
 .class-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: calc(12px * var(--widget-font-scale, 1));
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   white-space: nowrap;
@@ -270,42 +303,22 @@ main {
 
 .class-badge-pos {
   font-weight: 700;
-  font-size: 12px;
+  font-size: calc(12px * var(--widget-font-scale, 1));
 }
 
 .standings td.manufacturer {
   color: #cbd5e1;
-  font-size: 12px;
+  font-size: calc(12px * var(--widget-font-scale, 1));
 }
 
-.lic-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.lic-badge-letter {
-  display: inline-block;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-weight: 700;
-  font-size: 11px;
-}
-
-.lic-badge-sr {
-  color: #ddd;
-}
-
-.ir-badge {
+.rating-badge {
   display: inline-block;
   padding: 1px 6px;
   border-radius: 3px;
-  background: #1e293b;
-  color: #cbd5e1;
-  font-size: 11px;
+  font-size: calc(11px * var(--widget-font-scale, 1));
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ── Header buttons ─────────────────────────────────────────────────────── */
@@ -458,27 +471,245 @@ details ul {
   font-size: 12px;
 }
 
-/* ─── TrackMap settings panel ─────────────────────────────────────────── */
-.trackmap-settings {
+/* ─── Settings Drawer ─────────────────────────────────────────────────── */
+
+.settings-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 9;
+}
+
+.settings-drawer {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: min(320px, 100%);
+  background: #1a1a1a;
+  border-left: 1px solid #2a2a2a;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  border-bottom: 1px solid #222;
-  font-size: 12px;
+  z-index: 10;
+  transform: translateX(100%);
+  transition: transform 200ms ease;
+  overflow: hidden;
 }
-.trackmap-settings label {
+
+.settings-drawer.open {
+  transform: translateX(0);
+}
+
+.settings-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2a2a;
+  flex: 0 0 auto;
+}
+
+.settings-drawer-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #888;
+}
+
+.settings-drawer-close {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+.settings-drawer-close:hover { color: #ddd; background: #2a2a2a; }
+
+.settings-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Sortable column rows (used inside StandingsSettings) ────────────── */
+
+.settings-col-list {
+  flex: 1;
+  padding: 6px 0;
+}
+
+.settings-col-row {
   display: grid;
-  grid-template-columns: 50px 1fr 30px;
+  grid-template-columns: 24px 32px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  color: #aaa;
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+.settings-col-row:hover { background: #222; }
+
+.settings-col-row.dragging-row { opacity: 0.5; }
+
+.drag-handle {
+  cursor: grab;
+  color: #444;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+
+.drag-handle:active { cursor: grabbing; }
+
+/* ─── Toggle switch ───────────────────────────────────────────────────── */
+
+.toggle {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  background: #333;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 150ms;
+}
+
+.toggle input:checked + .toggle-track {
+  background: #2563eb;
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #888;
+  transition: transform 150ms, background 150ms;
+}
+
+.toggle input:checked + .toggle-track::after {
+  transform: translateX(12px);
+  background: #fff;
+}
+
+/* ─── Settings drawer footer ──────────────────────────────────────────── */
+
+.settings-drawer-footer {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border-top: 1px solid #222;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-footer-row {
+  display: flex;
   align-items: center;
   gap: 8px;
-  color: #aaa;
+  font-size: 11px;
+  color: #777;
 }
-.trackmap-settings input[type="range"] {
-  width: 100%;
+
+.settings-footer-row label {
+  flex: 0 0 80px;
+  white-space: nowrap;
 }
-.trackmap-settings span {
+
+.settings-footer-row input[type='range'] {
+  flex: 1;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.settings-footer-row span {
+  flex: 0 0 32px;
   text-align: right;
-  font-family: var(--mono, monospace);
-  color: #ddd;
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-btn {
+  background: #222;
+  border: 1px solid #333;
+  color: #999;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-btn:hover { background: #2a2a2a; color: #ddd; }
+
+.settings-footer-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── SoF Widget ─────────────────────────────────────────────────────────── */
+
+.sof-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #1e1e1e;
+}
+
+.sof-row:last-child {
+  border-bottom: none;
+}
+
+.sof-class-badge {
+  font-size: 13px;
+  padding: 4px 10px;
+  min-width: 52px;
+  text-align: center;
+  justify-content: center;
+}
+
+/* ─── Generic settings sections (TrackMap, future widgets) ────────────── */
+
+.settings-section {
+  padding: 10px 14px 6px;
+  border-bottom: 1px solid #222;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+  margin-bottom: 2px;
 }

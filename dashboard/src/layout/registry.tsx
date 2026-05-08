@@ -8,6 +8,8 @@ import { SessionInfo } from '../widgets/SessionInfo'
 import { Standings } from '../widgets/Standings'
 import { TelemetryInputs } from '../widgets/TelemetryInputs'
 import { TrackMap } from '../widgets/TrackMap'
+import { SoF } from '../widgets/SoF'
+import { Weather } from '../widgets/Weather'
 
 export type WidgetData = {
   tel: TelemetrySnapshot | null
@@ -49,9 +51,21 @@ export const REGISTRY: WidgetDef[] = [
     default: { w: 12, h: 9, minW: 6, minH: 5 },
   },
   {
+    id: 'sof',
+    title: 'Strength of Field',
+    render: (d) => <SoF snap={d.standings} />,
+    default: { w: 4, h: 7, minW: 3, minH: 3 },
+  },
+  {
     id: 'trackMap',
     title: 'Track Map',
     render: (d) => <TrackMap snap={d.trackMap} playerCarIdx={d.tel?.playerCarIdx ?? null} />,
     default: { w: 6, h: 12, minW: 4, minH: 6 },
+  },
+  {
+    id: 'weather',
+    title: 'Weather',
+    render: (d) => <Weather snap={d.tel} info={d.info} />,
+    default: { w: 4, h: 8, minW: 3, minH: 5 },
   },
 ]

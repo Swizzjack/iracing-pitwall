@@ -2,6 +2,8 @@ import { useRef, useEffect, useState } from 'react'
 import type { TrackMapSnapshot } from '@shared/TrackMapSnapshot'
 import type { TrackShape } from '@shared/TrackShape'
 import type { TrackCar } from '@shared/TrackCar'
+import { SettingsDrawer } from '../components/SettingsDrawer'
+import { TrackMapSettings } from './TrackMapSettings'
 
 interface Props {
   snap: TrackMapSnapshot | null
@@ -241,12 +243,16 @@ export function TrackMap({ snap, playerCarIdx }: Props) {
     return () => cancelAnimationFrame(animRef.current)
   }, [])
 
-  function makeUpdater(key: string, setter: (n: number) => void) {
-    return (e: React.ChangeEvent<HTMLInputElement>) => {
-      const v = parseFloat(e.target.value)
-      setter(v)
-      try { localStorage.setItem(key, String(v)) } catch {}
-    }
+  function persist(key: string, v: number | boolean) {
+    try { localStorage.setItem(key, String(v)) } catch {}
+  }
+
+  function handleResetAll() {
+    setTrackWidth(8);   persist(TRACK_W_KEY, 8)
+    setCarRadius(7);    persist(CAR_R_KEY, 7)
+    setSfLength(12);    persist(SF_LEN_KEY, 12)
+    setSectorShow(true); persist(SECTOR_SHOW_KEY, true)
+    setSectorLength(12); persist(SECTOR_LEN_KEY, 12)
   }
 
   return (
@@ -254,7 +260,7 @@ export function TrackMap({ snap, playerCarIdx }: Props) {
       <h2 style={{ display: 'flex', alignItems: 'center' }}>
         Track Map
         <button
-          className="header-btn"
+          className={`header-btn${showSettings ? ' header-btn-active' : ''}`}
           onClick={() => setShowSettings(s => !s)}
           title="Settings"
           style={{ marginLeft: 'auto' }}
@@ -264,22 +270,25 @@ export function TrackMap({ snap, playerCarIdx }: Props) {
         className="card-body"
         style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
       >
-        {showSettings && (
-          <div className="trackmap-settings">
-            <label>Track   <input type="range" min="2" max="24" step="1" value={trackWidth}   onChange={makeUpdater(TRACK_W_KEY, setTrackWidth)}     /><span>{trackWidth}</span></label>
-            <label>Cars    <input type="range" min="3" max="16" step="1" value={carRadius}    onChange={makeUpdater(CAR_R_KEY, setCarRadius)}        /><span>{carRadius}</span></label>
-            <label>S/F     <input type="range" min="4" max="40" step="1" value={sfLength}     onChange={makeUpdater(SF_LEN_KEY, setSfLength)}        /><span>{sfLength}</span></label>
-            <label>Sectors
-              <input type="checkbox" checked={sectorShow} onChange={e => {
-                const v = e.target.checked
-                setSectorShow(v)
-                try { localStorage.setItem(SECTOR_SHOW_KEY, String(v)) } catch {}
-              }} />
-              <input type="range" min="4" max="40" step="1" value={sectorLength} onChange={makeUpdater(SECTOR_LEN_KEY, setSectorLength)} />
-              <span>{sectorLength}</span>
-            </label>
-          </div>
-        )}
+        <SettingsDrawer
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          title="Track Map settings"
+        >
+          <TrackMapSettings
+            trackWidth={trackWidth}
+            carRadius={carRadius}
+            sfLength={sfLength}
+            sectorShow={sectorShow}
+            sectorLength={sectorLength}
+            onTrackWidth={v => { setTrackWidth(v); persist(TRACK_W_KEY, v) }}
+            onCarRadius={v => { setCarRadius(v); persist(CAR_R_KEY, v) }}
+            onSfLength={v => { setSfLength(v); persist(SF_LEN_KEY, v) }}
+            onSectorShow={v => { setSectorShow(v); persist(SECTOR_SHOW_KEY, v) }}
+            onSectorLength={v => { setSectorLength(v); persist(SECTOR_LEN_KEY, v) }}
+            onResetAll={handleResetAll}
+          />
+        </SettingsDrawer>
         <div style={{ position: 'relative', flex: '1 1 0', minHeight: 0 }}>
           <canvas
             ref={canvasRef}

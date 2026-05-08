@@ -7,7 +7,11 @@ use crate::telemetry::pit_tracker::PitTracker;
 use crate::telemetry::sector_tracker::SectorTracker;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::Mutex;
 use ts_rs::TS;
+
+static LAST_INC_SRC: Mutex<Option<String>> = Mutex::new(None);
+static LAST_INC_RAW: Mutex<Option<String>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "../shared/")]
@@ -44,7 +48,7 @@ pub struct StandingEntry {
     /// `driver.fastest_time − class_leader.fastest_time`. `None` = no valid data yet.
     pub gap_to_leader: Option<f32>,
     pub on_pit_road: bool,
-    pub incidents: i32,
+    pub tire_compound: Option<i32>,
     pub pit_stops: u32,
     pub last_pit_road_sec: Option<f32>,
     pub current_pit_road_sec: Option<f32>,
@@ -83,11 +87,13 @@ impl StandingsSnapshot {
         let last_lap_times = client.get_f32_array("CarIdxLastLapTime")?;
         let best_lap_times = client.get_f32_array("CarIdxBestLapTime")?;
         let on_pit = client.get_bool_array("CarIdxOnPitRoad")?;
-        // Incidents may be absent in older iRacing builds — default to 0.
-        let incidents = client.get_i32_array("CarIdxTeamIncidentCount").ok();
         // F2Time = seconds behind in-class leader during a race; absent in older
         // builds and meaningless outside race sessions, so it's optional.
         let f2_times = client.get_f32_array("CarIdxF2Time").ok();
+        // Tire compound index per car; absent in some builds/sessions.
+        let tire_compounds = client.get_i32_array("CarIdxTireCompound").ok();
+        // Kept for diagnostic logging only — not used for display.
+        let team_inc = client.get_i32_array("CarIdxTeamIncidentCount").ok();
 
         // Build a car_idx → ResultPosition lookup for fastest-time fallback.
         let results_map: HashMap<i32, &crate::iracing_sdk::types::ResultPosition> = current_session
@@ -122,12 +128,11 @@ impl StandingsSnapshot {
             .drivers
             .iter()
             .filter_map(|driver| {
-                let idx = driver.car_idx as usize;
-                let pos = *positions.get(idx)?;
-                // position == 0 means the car hasn't entered the session yet.
-                if pos == 0 {
+                if driver.car_is_pace_car != 0 || driver.is_spectator != 0 {
                     return None;
                 }
+                let idx = driver.car_idx as usize;
+                let pos = *positions.get(idx).unwrap_or(&0);
 
                 let res = results_map.get(&driver.car_idx);
                 let class_pos = *class_positions.get(idx).unwrap_or(&0);
@@ -206,7 +211,8 @@ impl StandingsSnapshot {
                     best_lap_time,
                     gap_to_leader,
                     on_pit_road: *on_pit.get(idx).unwrap_or(&false),
-                    incidents: incidents.and_then(|arr| arr.get(idx).copied()).unwrap_or(0),
+                    tire_compound: tire_compounds.as_ref().and_then(|arr| arr.get(idx).copied())
+                        .filter(|&c| c >= 0),
                     pit_stops: pit.map_or(0, |p| p.pit_stops),
                     last_pit_road_sec: pit.and_then(|p| p.last_pit_road_sec),
                     current_pit_road_sec: pit.and_then(|p| p.current_pit_road_sec),
@@ -216,7 +222,49 @@ impl StandingsSnapshot {
             })
             .collect();
 
-        entries.sort_unstable_by_key(|e| e.position);
+        {
+            let src_sig = format!(
+                "CarIdxTeamIncidentCount={} results_map_len={} results_positions_present={}",
+                team_inc.as_ref().map(|a| format!("Some(len={})", a.len())).unwrap_or_else(|| "None".into()),
+                results_map.len(),
+                current_session.and_then(|s| s.results_positions.as_ref()).is_some(),
+            );
+            let mut last = LAST_INC_SRC.lock().unwrap();
+            if last.as_deref() != Some(&src_sig) {
+                log::info!("standings inc sources: {}", src_sig);
+                *last = Some(src_sig);
+            }
+
+            let ego_idx = yaml.driver_info.driver_car_idx;
+            let raw_sig: String = entries
+                .iter()
+                .map(|e| {
+                    let idx = e.car_idx as usize;
+                    let live_inc = team_inc.as_ref().and_then(|a| a.get(idx).copied()).unwrap_or(0);
+                    let res_inc = results_map.get(&e.car_idx).map(|r| r.incidents).unwrap_or(0);
+                    let driver_entry = yaml.driver_info.drivers.iter().find(|d| d.car_idx == e.car_idx);
+                    let cur = driver_entry.map(|d| d.cur_driver_incident_count).unwrap_or(0);
+                    let team_cnt = driver_entry.map(|d| d.team_incident_count).unwrap_or(0);
+                    let ego_marker = if e.car_idx == ego_idx { "*" } else { "" };
+                    format!("{}{}(live={} res={} cur={} team={})", ego_marker, e.car_idx, live_inc, res_inc, cur, team_cnt)
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            let mut last_raw = LAST_INC_RAW.lock().unwrap();
+            if last_raw.as_deref() != Some(&raw_sig) {
+                log::info!("standings inc raw: {}", raw_sig);
+                *last_raw = Some(raw_sig);
+            }
+        }
+
+        entries.sort_unstable_by(|a, b| {
+            let a_unclass = a.position == 0;
+            let b_unclass = b.position == 0;
+            a_unclass
+                .cmp(&b_unclass)
+                .then(a.position.cmp(&b.position))
+                .then(a.user_name.cmp(&b.user_name))
+        });
 
         Ok(Self {
             session_num,
