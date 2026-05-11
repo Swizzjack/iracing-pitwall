@@ -92,7 +92,12 @@ function loadConfig(): Persisted {
   }
 }
 
-const fmtGap = (g: number | null) => (g == null || g === 0 ? '—' : `+${g.toFixed(3)}`)
+const fmtGap = (g: number | null) => {
+  if (g == null || g === 0) return '—'
+  // Negative integer-like values encode laps-down (iRacing ResultsPositions.Time).
+  if (g < 0 && Math.abs(g - Math.round(g)) < 0.01) return `+${Math.abs(Math.round(g))}L`
+  return `+${g.toFixed(3)}`
+}
 const fmtSec = (s: number) => s.toFixed(1) + 's'
 
 function hexFromInt(n: number | bigint | null | undefined): string | null {
@@ -124,22 +129,39 @@ function TireBadge({ compound }: { compound: number | null }) {
   return <span className="rating-badge" style={{ background: bg, color: fg }}>{txt}</span>
 }
 
-function ClassBadge({ classPos, classColor }: { classPos: number; classColor: bigint | null }) {
+function ClassBadge({ classPos, classColor, finished }: {
+  classPos: number
+  classColor: bigint | null
+  finished: boolean
+}) {
   const bg = hexFromInt(classColor) ?? '#444'
   const fg = readableTextOn(bg)
   return (
-    <span className="class-badge" style={{ background: bg, color: fg }}>
+    <span
+      className={`class-badge${finished ? ' class-badge-finished' : ''}`}
+      style={{ background: bg, color: fg }}
+    >
       <span className="class-badge-pos">{classPos > 0 ? classPos : '—'}</span>
     </span>
   )
 }
 
-function RatingBadge({ irating, safetyRating, licColor }: {
-  irating: number; safetyRating: string; licColor: bigint | null
+const LIC_COLORS: Record<string, { bg: string; fg: string }> = {
+  R: { bg: 'rgba(60, 0, 0, 0.82)',    fg: '#ff7575' },
+  D: { bg: 'rgba(60, 22, 0, 0.82)',   fg: '#ffaa55' },
+  C: { bg: 'rgba(55, 44, 0, 0.82)',   fg: '#ffe060' },
+  B: { bg: 'rgba(0, 45, 18, 0.82)',   fg: '#55dd8a' },
+  A: { bg: 'rgba(0, 30, 60, 0.82)',   fg: '#66b2ff' },
+  P: { bg: 'rgba(38, 0, 62, 0.82)',   fg: '#cc7fff' },
+  W: { bg: 'rgba(40, 34, 0, 0.82)',   fg: '#ffd966' },
+}
+
+function RatingBadge({ irating, safetyRating }: {
+  irating: number; safetyRating: string
 }) {
   if (irating <= 0 && !safetyRating) return <span>—</span>
-  const bg = hexFromInt(licColor) ?? '#1e293b'
-  const fg = readableTextOn(bg)
+  const cls = safetyRating.charAt(0).toUpperCase()
+  const { bg, fg } = LIC_COLORS[cls] ?? { bg: 'rgba(30, 30, 30, 0.82)', fg: '#aaaaaa' }
   const parts = [safetyRating || null, irating > 0 ? String(irating) : null].filter(Boolean)
   return (
     <span className="rating-badge" style={{ background: bg, color: fg }}>
@@ -229,6 +251,32 @@ export function Standings({ snap, playerCarIdx }: Props) {
     return [...snap.entries].sort((a, b) => compareEntries(a, b, sortBy, sortDir))
   }, [snap, sortBy, sortDir])
 
+  const sofByClass = useMemo(() => {
+    if (!snap) return []
+    const BR = 1600 / Math.LN2
+    const byClass = new Map<number, { name: string; color: string | null; ratings: number[] }>()
+    for (const e of snap.entries) {
+      if (!byClass.has(e.carClassId))
+        byClass.set(e.carClassId, { name: e.carClassShortName, color: hexFromInt(e.carClassColor), ratings: [] })
+      if (e.irating > 0) byClass.get(e.carClassId)!.ratings.push(e.irating)
+    }
+    const playerClassId = playerCarIdx != null
+      ? snap.entries.find(e => e.carIdx === playerCarIdx)?.carClassId ?? null
+      : null
+    return [...byClass.entries()]
+      .map(([classId, { name, color, ratings }]) => {
+        if (ratings.length === 0) return null
+        const sof = BR * Math.log(ratings.length / ratings.reduce((s, r) => s + Math.pow(2, -r / 1600), 0))
+        return { classId, name, color, sof: Math.round(sof) }
+      })
+      .filter((x): x is { classId: number; name: string; color: string | null; sof: number } => x != null)
+      .sort((a, b) => {
+        if (a.classId === playerClassId) return -1
+        if (b.classId === playerClassId) return 1
+        return b.sof - a.sof
+      })
+  }, [snap, playerCarIdx])
+
   function handleHeaderClick(id: ColId) {
     if (id === 'sectors') return
     setConfig(prev => {
@@ -306,7 +354,7 @@ export function Standings({ snap, playerCarIdx }: Props) {
     switch (id) {
       case 'pos': return [
         <td key="pos">
-          <ClassBadge classPos={e.classPosition} classColor={e.carClassColor} />
+          <ClassBadge classPos={e.classPosition} classColor={e.carClassColor} finished={e.finished} />
         </td>
       ]
       case 'car': return [<td key="car" className="manufacturer">{e.manufacturer ?? '—'}</td>]
@@ -340,16 +388,31 @@ export function Standings({ snap, playerCarIdx }: Props) {
       })
       case 'rating': return [
         <td key="rating">
-          <RatingBadge irating={e.irating} safetyRating={e.safetyRating} licColor={e.licColor} />
+          <RatingBadge irating={e.irating} safetyRating={e.safetyRating} />
         </td>
       ]
     }
   }
 
+  const sofNode = sofByClass.length === 0 ? null : (
+    <span className="standings-sof">
+      {'SoF '}
+      {sofByClass.map((c, i) => (
+        <span key={c.classId}>
+          {i > 0 && <span className="sof-sep"> · </span>}
+          <span style={{ color: c.color ?? '#888' }}>{c.name}</span>
+          {' '}
+          <span className="sof-val">{c.sof}</span>
+        </span>
+      ))}
+    </span>
+  )
+
   return (
     <section className="card" style={{ '--widget-font-scale': fontScale } as React.CSSProperties}>
-      <h2 style={{ display: 'flex', alignItems: 'center' }}>
+      <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span>Standings <span className="muted">— {snap.sessionType} ({snap.entries.length})</span></span>
+        {sofNode}
         <button
           className={`header-btn${showSettings ? ' header-btn-active' : ''}`}
           onClick={() => setShowSettings(s => !s)}

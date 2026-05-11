@@ -55,6 +55,19 @@ header h1 {
   margin-left: 6px;
 }
 
+.lan-url {
+  color: #22c55e;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-decoration: none;
+  opacity: 0.7;
+  border: 1px solid #22c55e33;
+  border-radius: 4px;
+  padding: 2px 7px;
+  transition: opacity 0.15s;
+}
+.lan-url:hover { opacity: 1; }
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
@@ -313,8 +326,8 @@ main {
 
 .rating-badge {
   display: inline-block;
-  padding: 1px 6px;
-  border-radius: 3px;
+  padding: 2px 8px;
+  border-radius: 9999px;
   font-size: calc(11px * var(--widget-font-scale, 1));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -355,6 +368,17 @@ main {
 .header-btn-danger:hover {
   color: #ef4444;
   border-color: #ef4444;
+}
+
+/* ── Checkered finish badge ──────────────────────────────────────────────── */
+
+.class-badge-finished {
+  background-image:
+    linear-gradient(45deg, rgba(0,0,0,0.55) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.55) 75%),
+    linear-gradient(45deg, rgba(0,0,0,0.55) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.55) 75%);
+  background-size: 6px 6px;
+  background-position: 0 0, 3px 3px;
+  text-shadow: 0 0 2px rgba(0,0,0,0.8);
 }
 
 .fs-btn {
@@ -674,25 +698,142 @@ details ul {
 
 /* ── SoF Widget ─────────────────────────────────────────────────────────── */
 
-.sof-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 12px;
-  align-items: center;
-  padding: 6px 0;
+.sof-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+}
+
+.sof-class {
+  padding: 10px 0 12px;
   border-bottom: 1px solid #1e1e1e;
 }
 
-.sof-row:last-child {
+.sof-class:last-child {
   border-bottom: none;
+  padding-bottom: 0;
+}
+
+.sof-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.sof-title { color: #d8521e; }
+
+.sof-meta {
+  color: #6a6a6a;
+  font-feature-settings: 'tnum';
+}
+
+.sof-meta-value { color: #c8c8c8; }
+
+.sof-body {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  height: 60px;
+  margin-top: 8px;
 }
 
 .sof-class-badge {
-  font-size: 13px;
-  padding: 4px 10px;
-  min-width: 52px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  background: #1e1e1e;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  color: #c8c8c8;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.sof-histogram {
+  flex: 1;
+  background: #0a0a0a;
+  border-radius: 4px;
+  overflow: visible;
+}
+
+.sof-baseline { stroke: #1f1f1f; stroke-width: 1; }
+.sof-marker   { stroke: #d8521e; stroke-width: 1.5; stroke-dasharray: 2 2; }
+.sof-marker-label { fill: #d8521e; font-size: 9px; }
+
+.sof-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   justify-content: center;
+}
+
+.sof-value {
+  font-size: 22px;
+  font-weight: 500;
+  color: #f5a623;
+  line-height: 1;
+}
+
+.sof-caption {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #6a6a6a;
+  margin-top: 4px;
+}
+
+/* ── Standings SoF title badge ──────────────────────────────────────────── */
+
+.standings-sof {
+  font-size: 13px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  color: #555;
+  white-space: nowrap;
+}
+
+.sof-val {
+  color: #b0b0b0;
+}
+
+.sof-sep {
+  color: #383838;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.10) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.10);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.22);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ─── Generic settings sections (TrackMap, future widgets) ────────────── */
@@ -712,4 +853,92 @@ details ul {
   letter-spacing: 0.08em;
   color: #555;
   margin-bottom: 2px;
+}
+
+/* ─── Electronics Widget ──────────────────────────────────────────────────── */
+
+.settings-btn {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  color: #888;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-btn:hover {
+  background: #222;
+  color: #ccc;
+}
+
+.settings-btn-active {
+  background: #f9731618;
+  border-color: #f9731640;
+  color: #f97316;
+}
+
+.elec-bento-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.elec-bento-card {
+  background: #0e0e0e;
+  border: 1px solid #1e1e1e;
+  border-radius: 5px;
+  padding: 8px 10px;
+}
+
+.elec-led {
+  display: inline-block;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #111;
+  color: #333;
+  border: 1px solid #1e1e1e;
+  letter-spacing: 0.04em;
+  transition: all 0.15s;
+}
+
+.elec-led-ready {
+  background: #facc1510;
+  color: #facc15;
+  border-color: #facc1530;
+}
+
+.elec-led-active-green {
+  background: #22c55e18;
+  color: #22c55e;
+  border-color: #22c55e35;
+  box-shadow: 0 0 8px #22c55e30;
+}
+
+.elec-led-active-orange {
+  background: #f9731618;
+  color: #f97316;
+  border-color: #f9731635;
+  box-shadow: 0 0 8px #f9731630;
+}
+
+.elec-led-active-blue {
+  background: #3b82f618;
+  color: #3b82f6;
+  border-color: #3b82f635;
+  box-shadow: 0 0 8px #3b82f630;
+}
+
+@keyframes elec-blink {
+  from { opacity: 1; }
+  to   { opacity: 0.3; }
+}
+
+@keyframes elec-blink-bar {
+  from { opacity: 1; box-shadow: 0 0 10px #ef4444; }
+  to   { opacity: 0.5; box-shadow: none; }
 }

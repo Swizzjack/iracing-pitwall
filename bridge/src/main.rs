@@ -58,6 +58,11 @@ async fn main() -> Result<()> {
     let (si_tx, si_rx) = watch::channel(None::<iracing_sdk::types::SessionInfoYaml>);
     let (tm_tx, tm_rx) = watch::channel(None::<telemetry::TrackMapSnapshot>);
 
+    let lan_url = detect_lan_ip().map(|ip| format!("http://{}:{}/", ip, cfg.ws_port));
+    if let Some(ref url) = lan_url {
+        log::info!("LAN access: {url}");
+    }
+
     let (clients, count_rx) = ws::ClientTracker::new();
     let state = ws::BridgeState {
         telemetry: tel_rx,
@@ -65,6 +70,7 @@ async fn main() -> Result<()> {
         session_info: si_rx,
         track_map: tm_rx,
         clients,
+        lan_url,
     };
 
     #[cfg(windows)]
@@ -98,7 +104,7 @@ async fn main() -> Result<()> {
         Err(e) => return Err(e.into()),
     };
     if std::env::var("BRIDGE_NO_BROWSER").is_err() {
-        let url = format!("http://{}/", addr);
+        let url = format!("http://127.0.0.1:{}/", addr.port());
         if let Err(e) = webbrowser::open(&url) {
             log::warn!("failed to open browser at {url}: {e}");
         }
@@ -179,6 +185,7 @@ fn connect_and_run(
     let mut yaml_cache: Option<iracing_sdk::types::SessionInfoYaml> = None;
     let mut pit_tracker = telemetry::pit_tracker::PitTracker::default();
     let mut sector_tracker = telemetry::sector_tracker::SectorTracker::default();
+    let mut finish_tracker = telemetry::finish_tracker::FinishTracker::default();
     let mut recorder = telemetry::track_recorder::TrackRecorder::new(cache_dir);
     let mut frame: u64 = 0;
 
@@ -187,6 +194,7 @@ fn connect_and_run(
 
         let tel = telemetry::TelemetrySnapshot::build(&client).context("telemetry build")?;
         let player_car_idx = tel.player_car_idx;
+        let session_num = tel.session_num;
         let _ = tel_tx.send(Some(tel));
 
         // Sector tracker runs every frame for 60 Hz accuracy.
@@ -207,8 +215,10 @@ fn connect_and_run(
             }
             if let Some(ref y) = yaml_cache {
                 pit_tracker.update(&client).context("pit_tracker update")?;
+                finish_tracker.observe(&client, &y.weekend_info, session_num)
+                    .context("finish_tracker observe")?;
                 let _ = std_tx.send(Some(
-                    telemetry::StandingsSnapshot::build(&client, y, &pit_tracker, &sector_tracker)
+                    telemetry::StandingsSnapshot::build(&client, y, &pit_tracker, &sector_tracker, &mut finish_tracker)
                         .context("standings build")?,
                 ));
             }
@@ -230,6 +240,13 @@ fn connect_and_run(
 
         frame = frame.wrapping_add(1);
     }
+}
+
+/// Determines the local LAN IP by routing towards a public address (no packets sent).
+fn detect_lan_ip() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    socket.local_addr().ok().map(|a| a.ip())
 }
 
 fn log_path() -> PathBuf {

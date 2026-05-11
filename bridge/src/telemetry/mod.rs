@@ -5,6 +5,7 @@
 //! - `track_recorder`: VelocityXY-Integration, Disk-Cache
 //! - `track_map`: 15-Hz TrackMap-Snapshot (Autopos. + Streckenform)
 
+pub mod finish_tracker;
 pub mod pit_tracker;
 pub mod sector_tracker;
 pub mod snapshot;

@@ -3,6 +3,7 @@
 use crate::error::Result;
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::iracing_sdk::IRacingClient;
+use crate::telemetry::finish_tracker::FinishTracker;
 use crate::telemetry::pit_tracker::PitTracker;
 use crate::telemetry::sector_tracker::SectorTracker;
 use serde::Serialize;
@@ -56,6 +57,8 @@ pub struct StandingEntry {
     pub last_sector_times: Vec<f32>,
     /// Personal-best sector time per sector. None until that sector has been completed cleanly.
     pub best_sector_times: Vec<Option<f32>>,
+    /// True once the car has crossed the S/F line under the checkered flag.
+    pub finished: bool,
 }
 
 impl StandingsSnapshot {
@@ -66,6 +69,7 @@ impl StandingsSnapshot {
         yaml: &SessionInfoYaml,
         pit_tracker: &PitTracker,
         sector_tracker: &SectorTracker,
+        finish_tracker: &mut FinishTracker,
     ) -> Result<Self> {
         let session_num = client.get_i32("SessionNum")?;
 
@@ -128,13 +132,24 @@ impl StandingsSnapshot {
             .drivers
             .iter()
             .filter_map(|driver| {
-                if driver.car_is_pace_car != 0 || driver.is_spectator != 0 {
+                // Always drop pace car. Drop spectators only if they have no
+                // classified result — after a race, iRacing may re-flag a DNF
+                // driver as spectator while their ResultsPositions entry remains.
+                if driver.car_is_pace_car != 0 {
                     return None;
                 }
+                let res = results_map.get(&driver.car_idx);
+                if driver.is_spectator != 0 && res.is_none() {
+                    return None;
+                }
+
+                // Return frozen entry immediately if this car has already finished.
+                if let Some(frozen) = finish_tracker.frozen_entry(driver.car_idx) {
+                    return Some(frozen.clone());
+                }
+
                 let idx = driver.car_idx as usize;
                 let pos = *positions.get(idx).unwrap_or(&0);
-
-                let res = results_map.get(&driver.car_idx);
                 let class_pos = *class_positions.get(idx).unwrap_or(&0);
 
                 let gap_to_leader: Option<f32> = if is_race {
@@ -192,7 +207,7 @@ impl StandingsSnapshot {
 
                 let pit = pit_tracker.get(driver.car_idx);
                 let sectors = sector_tracker.get(driver.car_idx);
-                Some(StandingEntry {
+                let live_entry = StandingEntry {
                     car_idx: driver.car_idx,
                     position: pos,
                     class_position: class_pos,
@@ -218,7 +233,20 @@ impl StandingsSnapshot {
                     current_pit_road_sec: pit.and_then(|p| p.current_pit_road_sec),
                     last_sector_times: sectors.map(|s| s.last_sectors.clone()).unwrap_or_default(),
                     best_sector_times: sectors.map(|s| s.personal_best.clone()).unwrap_or_default(),
-                })
+                    finished: false,
+                };
+
+                // Freeze on first tick where checkered is set AND this car's lap counter
+                // incremented (= the car just crossed the S/F line under the checkered flag).
+                if finish_tracker.checkered() && finish_tracker.has_incremented(driver.car_idx) {
+                    let mut finished_entry = live_entry.clone();
+                    finished_entry.finished = true;
+                    finish_tracker.freeze_if_new(driver.car_idx, finished_entry);
+                    // Return the now-frozen copy.
+                    return Some(finish_tracker.frozen_entry(driver.car_idx).unwrap().clone());
+                }
+
+                Some(live_entry)
             })
             .collect();
 
