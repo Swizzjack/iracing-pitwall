@@ -3,13 +3,13 @@ import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
 import type { StandingsSnapshot } from '@shared/StandingsSnapshot'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
 import type { TrackMapSnapshot } from '@shared/TrackMapSnapshot'
-import { Telemetry } from '../widgets/Telemetry'
-import { SessionInfo } from '../widgets/SessionInfo'
 import { Standings } from '../widgets/Standings'
 import { TelemetryInputs } from '../widgets/TelemetryInputs'
 import { TrackMap } from '../widgets/TrackMap'
 import { SoF } from '../widgets/SoF'
 import { Weather } from '../widgets/Weather'
+import { Fuel } from '../widgets/Fuel'
+import { Electronics } from '../widgets/Electronics'
 
 export type WidgetData = {
   tel: TelemetrySnapshot | null
@@ -27,18 +27,6 @@ export type WidgetDef = {
 
 export const REGISTRY: WidgetDef[] = [
   {
-    id: 'telemetry',
-    title: 'Telemetry',
-    render: (d) => <Telemetry snap={d.tel} />,
-    default: { w: 4, h: 9, minW: 3, minH: 5 },
-  },
-  {
-    id: 'session',
-    title: 'Session',
-    render: (d) => <SessionInfo info={d.info} />,
-    default: { w: 4, h: 7, minW: 3, minH: 4 },
-  },
-  {
     id: 'telemetryInputs',
     title: 'Telemetry Inputs',
     render: (d) => <TelemetryInputs snap={d.tel} />,
@@ -53,7 +41,7 @@ export const REGISTRY: WidgetDef[] = [
   {
     id: 'sof',
     title: 'Strength of Field',
-    render: (d) => <SoF snap={d.standings} />,
+    render: (d) => <SoF snap={d.standings} playerCarIdx={d.tel?.playerCarIdx ?? null} />,
     default: { w: 4, h: 7, minW: 3, minH: 3 },
   },
   {
@@ -67,5 +55,17 @@ export const REGISTRY: WidgetDef[] = [
     title: 'Weather',
     render: (d) => <Weather snap={d.tel} info={d.info} />,
     default: { w: 4, h: 8, minW: 3, minH: 5 },
+  },
+  {
+    id: 'fuel',
+    title: 'Fuel',
+    render: (d) => <Fuel snap={d.tel} />,
+    default: { w: 4, h: 9, minW: 3, minH: 5 },
+  },
+  {
+    id: 'electronics',
+    title: 'Electronics',
+    render: (d) => <Electronics snap={d.tel} />,
+    default: { w: 6, h: 10, minW: 3, minH: 6 },
   },
 ]

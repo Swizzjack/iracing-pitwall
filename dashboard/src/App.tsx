@@ -18,6 +18,7 @@ const WS_URL = import.meta.env.DEV
 function App() {
   const [conn, setConn] = useState<ConnectionState>('closed')
   const [bridgeVersion, setBridgeVersion] = useState<string | null>(null)
+  const [lanUrl, setLanUrl] = useState<string | null>(null)
   const [tel, setTel] = useState<TelemetrySnapshot | null>(null)
   const [standings, setStandings] = useState<StandingsSnapshot | null>(null)
   const [info, setInfo] = useState<SessionInfoYaml | null>(null)
@@ -49,6 +50,7 @@ function App() {
       switch (msg.type) {
         case 'hello':
           setBridgeVersion(msg.bridgeVersion)
+          setLanUrl(msg.lanUrl ?? null)
           break
         case 'telemetry':
           pendingTel.current = msg.snapshot
@@ -123,6 +125,11 @@ function App() {
             {conn}
             {bridgeVersion && <span className="ver">v{bridgeVersion}</span>}
           </div>
+          {lanUrl && (
+            <a className="lan-url" href={lanUrl} target="_blank" rel="noreferrer" title="LAN-Adresse — auf anderen Geräten öffnen">
+              {lanUrl.replace('http://', '').replace(/\/$/, '')}
+            </a>
+          )}
           <EditToolbar
             editing={editing}
             visible={stored.visible}

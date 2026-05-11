@@ -13,7 +13,7 @@ use ts_rs::TS;
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ServerMessage {
     #[serde(rename_all = "camelCase")]
-    Hello { bridge_version: String },
+    Hello { bridge_version: String, lan_url: Option<String> },
 
     #[serde(rename_all = "camelCase")]
     SdkStatus { status: HeaderStatus },

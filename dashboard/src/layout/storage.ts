@@ -9,13 +9,13 @@ export type StoredLayout = {
 }
 
 const DEFAULT_POSITIONS = [
-  { x: 0, y: 0 },   // telemetry
-  { x: 4, y: 0 },   // session
-  { x: 8, y: 0 },   // telemetryInputs
-  { x: 0, y: 9 },   // standings
-  { x: 8, y: 9 },   // sof
-  { x: 0, y: 21 },  // trackMap
-  { x: 6, y: 21 },  // weather
+  { x: 0, y: 0 },   // telemetryInputs
+  { x: 0, y: 7 },   // standings
+  { x: 8, y: 0 },   // sof
+  { x: 0, y: 16 },  // trackMap
+  { x: 6, y: 16 },  // weather
+  { x: 6, y: 24 },  // fuel
+  { x: 0, y: 33 },  // electronics
 ]
 
 export function buildDefaultLayout(): StoredLayout {

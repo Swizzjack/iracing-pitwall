@@ -38,10 +38,11 @@ pub struct BridgeState {
     pub session_info: watch::Receiver<Option<SessionInfoYaml>>,
     pub track_map: watch::Receiver<Option<TrackMapSnapshot>>,
     pub clients: ClientTracker,
+    pub lan_url: Option<String>,
 }
 
 pub async fn bind(port: u16) -> Result<(SocketAddr, TcpListener)> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
     let local_addr = listener.local_addr()?;
     log::info!("HTTP+WS server listening on http://{local_addr}");
@@ -91,6 +92,7 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
         &mut sink,
         &ServerMessage::Hello {
             bridge_version: env!("CARGO_PKG_VERSION").to_string(),
+            lan_url: state.lan_url.clone(),
         },
     )
     .await?;
