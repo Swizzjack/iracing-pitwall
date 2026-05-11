@@ -89,6 +89,45 @@ pub struct TelemetrySnapshot {
     pub wind_vel: Option<f32>,
     pub wind_dir: Option<f32>,
     pub session_time_of_day: Option<f32>,
+
+    // Race format / remaining (32767 = unlimited / time-based)
+    pub session_time_remain: Option<f64>,
+    pub session_laps_remain: Option<i32>,
+    pub session_time_total: Option<f64>,
+    pub session_laps_total: Option<i32>,
+
+    // Battery / Hybrid (all Option — car-specific, not universally available)
+    pub energy_battery_pct: Option<f32>,
+    pub energy_battery: Option<f32>,
+    pub mguk_deploy_mode: Option<i32>,
+    pub power_mguk: Option<f32>,
+
+    // Driver Adjustments (Option — car-class specific)
+    pub dc_traction_control: Option<f32>,
+    pub dc_traction_control_2: Option<f32>,
+    pub dc_abs: Option<f32>,
+    pub dc_throttle_shape: Option<f32>,
+    pub dc_diff_entry: Option<f32>,
+    pub dc_diff_middle: Option<f32>,
+    pub dc_diff_exit: Option<f32>,
+    pub dc_anti_roll_front: Option<f32>,
+    pub dc_anti_roll_rear: Option<f32>,
+    pub dc_engine_braking: Option<f32>,
+
+    // DRS / Push-to-pass
+    pub drs_status: Option<i32>,
+    pub p2p_count: Option<i32>,
+    pub p2p_status: Option<bool>,
+
+    // Engine extras (Option — turbo/fuel-injection cars only)
+    pub manifold_press: Option<f32>,
+    pub fuel_press: Option<f32>,
+
+    // Shift light thresholds (set per car, exposed as telemetry vars)
+    pub shift_light_first_rpm: Option<f32>,
+    pub shift_light_shift_rpm: Option<f32>,
+    pub shift_light_last_rpm: Option<f32>,
+    pub shift_light_blink_rpm: Option<f32>,
 }
 
 impl TelemetrySnapshot {
@@ -178,6 +217,45 @@ impl TelemetrySnapshot {
             wind_vel: client.get_f32("WindVel").ok(),
             wind_dir: client.get_f32("WindDir").ok(),
             session_time_of_day: client.get_f32("SessionTimeOfDay").ok(),
+
+            // Race format / remaining
+            session_time_remain: client.get_f64("SessionTimeRemain").ok(),
+            session_laps_remain: client.get_i32("SessionLapsRemain").ok(),
+            session_time_total: client.get_f64("SessionTimeTotal").ok(),
+            session_laps_total: client.get_i32("SessionLapsTotal").ok(),
+
+            // Battery / Hybrid
+            energy_battery_pct: client.get_f32("EnergyERSBatteryPct").ok(),
+            energy_battery: client.get_f32("EnergyERSBattery").ok(),
+            mguk_deploy_mode: client.get_i32("dcMGUKDeployMode").ok(),
+            power_mguk: client.get_f32("PowerMGUK").ok(),
+
+            // Driver Adjustments
+            dc_traction_control: client.get_f32("dcTractionControl").ok(),
+            dc_traction_control_2: client.get_f32("dcTractionControl2").ok(),
+            dc_abs: client.get_f32("dcABS").ok(),
+            dc_throttle_shape: client.get_f32("dcThrottleShape").ok(),
+            dc_diff_entry: client.get_f32("dcDiffEntry").ok(),
+            dc_diff_middle: client.get_f32("dcDiffMiddle").ok(),
+            dc_diff_exit: client.get_f32("dcDiffExit").ok(),
+            dc_anti_roll_front: client.get_f32("dcAntiRollFront").ok(),
+            dc_anti_roll_rear: client.get_f32("dcAntiRollRear").ok(),
+            dc_engine_braking: client.get_f32("dcEngineBraking").ok(),
+
+            // DRS / Push-to-pass
+            drs_status: client.get_i32("DrsStatus").ok(),
+            p2p_count: client.get_i32("P2P_Count").ok(),
+            p2p_status: client.get_bool("P2P_Status").ok(),
+
+            // Engine extras
+            manifold_press: client.get_f32("ManifoldPress").ok(),
+            fuel_press: client.get_f32("FuelPress").ok(),
+
+            // Shift light thresholds
+            shift_light_first_rpm: client.get_f32("PlayerCarSLFirstRPM").ok(),
+            shift_light_shift_rpm: client.get_f32("PlayerCarSLShiftRPM").ok(),
+            shift_light_last_rpm: client.get_f32("PlayerCarSLLastRPM").ok(),
+            shift_light_blink_rpm: client.get_f32("PlayerCarSLBlinkRPM").ok(),
         })
     }
 }
