@@ -1,11 +1,11 @@
 [package]
 name = "bridge"
-version = "0.1.0"
+version = "0.1.16"
 edition = "2021"
 rust-version = "1.80"
 
 [[bin]]
-name = "bridge"
+name = "iracing-pitwall"
 path = "src/main.rs"
 
 [dependencies]

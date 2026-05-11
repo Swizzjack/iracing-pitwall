@@ -3,9 +3,38 @@
 //! Wichtig: encoding_rs::WINDOWS_1252 ist eine strikte Obermenge von
 //! ISO-8859-1 für den druckbaren Bereich; 0x80-0x9F werden für unsere
 //! Zwecke (Fahrernamen, Track-Namen) nicht benötigt.
+//!
+//! iRacing erzeugt in Abschnitten wie CarSetup, CameraInfo, RadioInfo
+//! manchmal nicht-valides YAML (z.B. Fahrzeugnamen mit Doppelpunkten,
+//! unkorrekte Block-Nodes). Da serde_yaml das gesamte Dokument parst,
+//! filtern wir vorab alle nicht benötigten Top-Level-Sektionen heraus.
 
 use crate::error::{BridgeError, Result};
 use crate::iracing_sdk::types::SessionInfoYaml;
+
+const KEEP: &[&str] = &["WeekendInfo", "SessionInfo", "DriverInfo", "SplitTimeInfo"];
+
+/// Behält nur die in `keep` aufgeführten Top-Level-Sektionen des YAML-Dokuments.
+/// Eine Top-Level-Sektion beginnt mit einer Zeile ohne führende Whitespace-Zeichen,
+/// die nicht mit `#` oder `-` startet und einen `:` enthält.
+fn keep_sections(yaml: &str, keep: &[&str]) -> String {
+    let mut out = String::with_capacity(yaml.len() / 2);
+    let mut in_section = false;
+
+    for line in yaml.lines() {
+        let first = line.chars().next();
+        let is_top_level = matches!(first, Some(c) if !c.is_whitespace() && c != '#' && c != '-' && c != '.');
+        if is_top_level {
+            let section_name = line.split(':').next().unwrap_or("").trim();
+            in_section = keep.iter().any(|k| *k == section_name);
+        }
+        if in_section {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
 
 pub fn decode_and_parse(raw: &[u8]) -> Result<SessionInfoYaml> {
     let (decoded, _enc, had_errors) = encoding_rs::WINDOWS_1252.decode(raw);
@@ -13,7 +42,8 @@ pub fn decode_and_parse(raw: &[u8]) -> Result<SessionInfoYaml> {
         log::warn!("YAML decode had replacement errors (non-ISO-8859-1 bytes encountered)");
     }
     let trimmed = decoded.trim_end_matches('\0');
-    serde_yaml::from_str::<SessionInfoYaml>(trimmed)
+    let filtered = keep_sections(trimmed, KEEP);
+    serde_yaml::from_str::<SessionInfoYaml>(&filtered)
         .map_err(|e| BridgeError::YamlParse(e.to_string()))
 }
 
@@ -40,5 +70,23 @@ mod tests {
         assert_eq!(info.weekend_info.track_name, "okayama short");
         assert!(!info.session_info.sessions.is_empty());
         assert!(info.driver_info.drivers.len() >= 2);
+    }
+
+    #[test]
+    fn ignores_invalid_yaml_in_unknown_sections() {
+        // Simulate iRacing emitting broken YAML in CarSetup (colon in unquoted value).
+        let yaml = std::str::from_utf8(FIXTURE).unwrap().to_owned()
+            + "\nCarSetup:\n Tyres:\n  FrontLeft: Some: Bad: Value\n";
+        let info = decode_and_parse(yaml.as_bytes()).expect("broken CarSetup must not abort parse");
+        assert_eq!(info.weekend_info.track_name, "okayama short");
+    }
+
+    #[test]
+    fn keep_sections_only_returns_wanted() {
+        let yaml = "WeekendInfo:\n TrackName: foo\nCarSetup:\n bad: colon: here\nDriverInfo:\n DriverCarIdx: 0\n Drivers: []\n";
+        let out = keep_sections(yaml, KEEP);
+        assert!(out.contains("WeekendInfo"));
+        assert!(out.contains("DriverInfo"));
+        assert!(!out.contains("CarSetup"));
     }
 }
