@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate assets/icon.ico — dark background (#1a1a1a) with green 'IR' text (#22c55e).
+"""Generate assets/icon.ico — dark background (#1a1a1a) with yellow 'IR' text (#facc15).
 Run from the bridge/assets/ directory or any directory; .ico is written next to this file."""
 
 import io, struct, subprocess, sys, os
@@ -15,7 +15,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(SCRIPT_DIR, "icon.ico")
 
 BG    = (26, 26, 26)    # #1a1a1a
-FG    = (34, 197, 94)   # #22c55e
+FG    = (250, 204, 21)  # #facc15
 SIZES = [16, 24, 32, 48, 64, 256]
 
 FONT_CANDIDATES = [
