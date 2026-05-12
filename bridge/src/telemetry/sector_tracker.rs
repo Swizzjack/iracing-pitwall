@@ -63,11 +63,19 @@ pub struct SectorTracker {
     cars: HashMap<i32, CarState>,
     /// Sorted sector start pcts, without 0.0 (S/F).
     sector_starts: Vec<f32>,
+    last_session_num: Option<i32>,
 }
 
 impl SectorTracker {
     /// Update sector tracking for all cars. Called every 60-Hz frame.
     pub fn update(&mut self, client: &IRacingClient, yaml: &SessionInfoYaml) -> Result<()> {
+        let session_num = client.get_i32("SessionNum")?;
+        if self.last_session_num != Some(session_num) {
+            log::info!("sector_tracker: reset for session={session_num}");
+            self.last_session_num = Some(session_num);
+            self.cars.clear();
+        }
+
         let new_starts = yaml.sector_starts();
         if new_starts != self.sector_starts {
             self.sector_starts = new_starts;
@@ -228,6 +236,7 @@ mod tests {
         SectorTracker {
             cars: HashMap::new(),
             sector_starts: starts,
+            last_session_num: None,
         }
     }
 

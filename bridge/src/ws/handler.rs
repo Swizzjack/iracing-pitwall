@@ -19,11 +19,15 @@ use axum::{
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use rust_embed::RustEmbed;
 use tokio::net::TcpListener;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use crate::error::{BridgeError, Result};
+use crate::iracing_api::ApiClient;
 use crate::iracing_sdk::types::SessionInfoYaml;
+use crate::persistence::Db;
+use crate::results::SubSessionEnd;
 use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
+use crate::ws::client::ClientMessage;
 use crate::ws::lifecycle::ClientTracker;
 use crate::ws::protocol::ServerMessage;
 
@@ -39,6 +43,12 @@ pub struct BridgeState {
     pub track_map: watch::Receiver<Option<TrackMapSnapshot>>,
     pub clients: ClientTracker,
     pub lan_url: Option<String>,
+    pub db: Db,
+    pub api: ApiClient,
+    /// Sender for session-end events → results service.
+    pub finish_tx: mpsc::Sender<SubSessionEnd>,
+    /// Receiver for push events from the results service (broadcast).
+    pub results_push: broadcast::Sender<ServerMessage>,
 }
 
 pub async fn bind(port: u16) -> Result<(SocketAddr, TcpListener)> {
@@ -97,6 +107,12 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
     )
     .await?;
 
+    // Send current OAuth link status immediately after Hello.
+    {
+        let (linked, member_name, cust_id) = state.api.get_linked_info().await;
+        send_msg(&mut sink, &ServerMessage::OAuthStatus { linked, member_name, cust_id }).await?;
+    }
+
     let mut tel_rx = state.telemetry;
     let mut std_rx = state.standings;
     let mut si_rx = state.session_info;
@@ -121,13 +137,20 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
         send_msg(&mut sink, &ServerMessage::TrackMap { snapshot: s }).await?;
     }
 
+    let db = state.db.clone();
+    let api = state.api.clone();
+    let finish_tx = state.finish_tx.clone();
+    let mut results_rx = state.results_push.subscribe();
+
     loop {
         tokio::select! {
-            // Inbound: Pings/Close-Frames konsumieren; None oder Err = Client weg.
             msg = stream.next() => {
                 match msg {
                     None | Some(Err(_)) => return Ok(()),
-                    Some(Ok(_)) => {} // ignorieren
+                    Some(Ok(Message::Text(text))) => {
+                        handle_client_msg(&text, &mut sink, &db, &api, &finish_tx).await;
+                    }
+                    Some(Ok(_)) => {}
                 }
             }
             r = tel_rx.changed() => {
@@ -158,6 +181,102 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
                     send_msg(&mut sink, &ServerMessage::TrackMap { snapshot: s }).await?;
                 }
             }
+            push = results_rx.recv() => {
+                match push {
+                    Ok(msg) => send_msg(&mut sink, &msg).await?,
+                    Err(broadcast::error::RecvError::Lagged(_)) => {} // skip missed pushes
+                    Err(broadcast::error::RecvError::Closed) => {} // results service stopped
+                }
+            }
+        }
+    }
+}
+
+async fn handle_client_msg(
+    text: &str,
+    sink: &mut WsSink,
+    db: &Db,
+    api: &ApiClient,
+    finish_tx: &mpsc::Sender<SubSessionEnd>,
+) {
+    let msg = match serde_json::from_str::<ClientMessage>(text) {
+        Ok(m) => m,
+        Err(e) => {
+            log::warn!("ws: invalid client message: {e} — {text}");
+            return;
+        }
+    };
+
+    match msg {
+        ClientMessage::StartOAuth => {
+            match crate::iracing_api::auth::start_flow().await {
+                Ok((url, token_handle)) => {
+                    let _ = send_msg(sink, &ServerMessage::OAuthUrl { url }).await;
+                    let api = api.clone();
+                    tokio::spawn(async move {
+                        match token_handle.await {
+                            Ok(Ok(tokens)) => {
+                                if let Err(e) = api.store_tokens(tokens).await {
+                                    log::warn!("oauth: store_tokens failed: {e}");
+                                } else {
+                                    let (linked, name, cust_id) = api.get_linked_info().await;
+                                    log::info!("oauth: linked as {:?} (cust_id={:?})", name, cust_id);
+                                    // We can't push to this specific client here — that's OK,
+                                    // the client will query OAuthStatus on next load.
+                                    let _ = (linked, name, cust_id);
+                                }
+                            }
+                            Ok(Err(e)) => log::warn!("oauth: token exchange failed: {e}"),
+                            Err(e) => log::warn!("oauth: task panicked: {e}"),
+                        }
+                    });
+                }
+                Err(e) => log::warn!("oauth: start_flow failed: {e}"),
+            }
+        }
+
+        ClientMessage::QueryResults { filter } => {
+            let result = db
+                .with(move |c| crate::persistence::queries::query_sessions(c, &filter))
+                .await;
+            match result {
+                Ok((sessions, total)) => {
+                    let _ = send_msg(sink, &ServerMessage::ResultsList { sessions, total }).await;
+                }
+                Err(e) => log::warn!("ws: query_sessions failed: {e}"),
+            }
+        }
+
+        ClientMessage::QueryResultDetail { sub_session_id } => {
+            let result = db
+                .with(move |c| crate::persistence::queries::get_session_detail(c, sub_session_id))
+                .await;
+            match result {
+                Ok(Some(session)) => {
+                    let _ = send_msg(sink, &ServerMessage::ResultDetail { session }).await;
+                }
+                Ok(None) => log::info!("ws: no detail for subsession {sub_session_id}"),
+                Err(e) => log::warn!("ws: get_session_detail failed: {e}"),
+            }
+        }
+
+        ClientMessage::QueryFilterOptions => {
+            let result = db
+                .with(|c| crate::persistence::queries::get_filter_options(c))
+                .await;
+            match result {
+                Ok(options) => {
+                    let _ = send_msg(sink, &ServerMessage::FilterOptions { options }).await;
+                }
+                Err(e) => log::warn!("ws: get_filter_options failed: {e}"),
+            }
+        }
+
+        ClientMessage::TriggerFetch { sub_session_id } => {
+            log::info!("ws: manual fetch trigger for subsession {sub_session_id}");
+            let _ = finish_tx
+                .send(SubSessionEnd { sub_session_id })
+                .await;
         }
     }
 }

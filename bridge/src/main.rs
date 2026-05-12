@@ -7,7 +7,11 @@
 
 mod config;
 mod error;
+mod iracing_api;
 mod iracing_sdk;
+mod paths;
+mod persistence;
+mod results;
 mod telemetry;
 mod ws;
 
@@ -18,7 +22,7 @@ use std::time::Duration;
 use anyhow::Result;
 #[cfg(windows)]
 use anyhow::Context;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 /// Prüft per TCP-Connect ob bereits eine Bridge-Instanz auf diesem Port läuft.
 /// Schneller als port-binding und funktioniert ohne Windows-spezifische APIs.
@@ -63,6 +67,26 @@ async fn main() -> Result<()> {
         log::info!("LAN access: {url}");
     }
 
+    // ── Results subsystem ───────────────────────────────────────────────
+    let data_dir = paths::data_dir();
+    let db = persistence::Db::open(&data_dir.join("results.sqlite"))
+        .map_err(|e| { log::warn!("db open failed: {e}"); e })?;
+    let api = iracing_api::ApiClient::new(data_dir.join("auth.json"))
+        .map_err(|e| { log::warn!("api client init failed: {e}"); e })?;
+    let (finish_tx, finish_rx) = mpsc::channel::<results::SubSessionEnd>(32);
+    let (results_push_tx, _) = broadcast::channel::<ws::ServerMessage>(64);
+
+    {
+        let db2 = db.clone();
+        let api2 = api.clone();
+        let push2 = results_push_tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = results::run(db2, api2, finish_rx, push2).await {
+                log::error!("results service: {e}");
+            }
+        });
+    }
+
     let (clients, count_rx) = ws::ClientTracker::new();
     let state = ws::BridgeState {
         telemetry: tel_rx,
@@ -71,14 +95,21 @@ async fn main() -> Result<()> {
         track_map: tm_rx,
         clients,
         lan_url,
+        db,
+        api,
+        finish_tx,
+        results_push: results_push_tx,
     };
 
     #[cfg(windows)]
-    tokio::task::spawn_blocking(move || {
-        if let Err(e) = sdk_loop(tel_tx, std_tx, si_tx, tm_tx) {
-            log::error!("sdk_loop terminated: {e}");
-        }
-    });
+    {
+        let finish_tx_sdk = state.finish_tx.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = sdk_loop(tel_tx, std_tx, si_tx, tm_tx, finish_tx_sdk) {
+                log::error!("sdk_loop terminated: {e}");
+            }
+        });
+    }
 
     #[cfg(not(windows))]
     {
@@ -145,12 +176,13 @@ fn sdk_loop(
     std_tx: watch::Sender<Option<telemetry::StandingsSnapshot>>,
     si_tx: watch::Sender<Option<iracing_sdk::types::SessionInfoYaml>>,
     tm_tx: watch::Sender<Option<telemetry::TrackMapSnapshot>>,
+    finish_tx: mpsc::Sender<results::SubSessionEnd>,
 ) -> Result<()> {
     use std::time::Duration;
     const RETRY_DELAY: Duration = Duration::from_secs(3);
 
     loop {
-        match connect_and_run(&tel_tx, &std_tx, &si_tx, &tm_tx) {
+        match connect_and_run(&tel_tx, &std_tx, &si_tx, &tm_tx, &finish_tx) {
             Ok(()) => return Ok(()),
             Err(e) => {
                 if matches!(
@@ -173,6 +205,7 @@ fn connect_and_run(
     std_tx: &watch::Sender<Option<telemetry::StandingsSnapshot>>,
     si_tx: &watch::Sender<Option<iracing_sdk::types::SessionInfoYaml>>,
     tm_tx: &watch::Sender<Option<telemetry::TrackMapSnapshot>>,
+    finish_tx: &mpsc::Sender<results::SubSessionEnd>,
 ) -> Result<()> {
     use iracing_sdk::yaml::decode_and_parse;
 
@@ -221,6 +254,11 @@ fn connect_and_run(
                     telemetry::StandingsSnapshot::build(&client, y, &pit_tracker, &sector_tracker, &mut finish_tracker)
                         .context("standings build")?,
                 ));
+                // Trigger results fetch on checkered-flag rising edge.
+                if let Some(sub_id) = finish_tracker.checkered_edge_fired() {
+                    log::info!("sdk_loop: checkered edge — queuing results fetch for subsession {sub_id}");
+                    let _ = finish_tx.blocking_send(results::SubSessionEnd { sub_session_id: sub_id });
+                }
             }
         }
 

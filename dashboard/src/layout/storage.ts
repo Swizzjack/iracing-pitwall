@@ -1,7 +1,7 @@
 import type { LayoutItem } from 'react-grid-layout'
 import { REGISTRY } from './registry'
 
-const KEY = 'iracing-dashboard-layout-v1'
+const KEY = 'iracing-dashboard-layout-v2'
 
 export type StoredLayout = {
   visible: string[]
@@ -16,6 +16,7 @@ const DEFAULT_POSITIONS = [
   { x: 6, y: 16 },  // weather
   { x: 6, y: 24 },  // fuel
   { x: 0, y: 33 },  // electronics
+  { x: 6, y: 33 },  // tire
 ]
 
 export function buildDefaultLayout(): StoredLayout {

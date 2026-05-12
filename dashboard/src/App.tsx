@@ -11,6 +11,8 @@ import { EditToolbar } from './layout/EditToolbar'
 import { loadLayout, saveLayout, resetLayout, type StoredLayout } from './layout/storage'
 import './App.css'
 
+type View = 'dashboard'
+
 const WS_URL = import.meta.env.DEV
   ? 'ws://127.0.0.1:8765/ws'
   : `ws://${location.host}/ws`
@@ -26,11 +28,13 @@ function App() {
   const [isFs, setIsFs] = useState(false)
   const [editing, setEditing] = useState(false)
   const [stored, setStored] = useState<StoredLayout>(loadLayout)
+  const [view] = useState<View>('dashboard')
 
   // 60 Hz telemetry → throttle to one render per animation frame
   const pendingTel = useRef<TelemetrySnapshot | null>(null)
   const rafScheduled = useRef(false)
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clientRef = useRef<WsClient | null>(null)
 
   useEffect(() => {
     const onChange = () => setIsFs(!!document.fullscreenElement)
@@ -45,6 +49,7 @@ function App() {
 
   useEffect(() => {
     const client = new WsClient(WS_URL)
+    clientRef.current = client
     const offState = client.onState(setConn)
     const offMsg = client.onMessage((msg: ServerMessage) => {
       switch (msg.type) {
@@ -81,6 +86,7 @@ function App() {
       offState()
       offMsg()
       client.stop()
+      clientRef.current = null
     }
   }, [])
 
@@ -130,13 +136,15 @@ function App() {
               {lanUrl.replace('http://', '').replace(/\/$/, '')}
             </a>
           )}
-          <EditToolbar
-            editing={editing}
-            visible={stored.visible}
-            onToggleEdit={() => setEditing((e) => !e)}
-            onAdd={handleAdd}
-            onReset={handleReset}
-          />
+          {view === 'dashboard' && (
+            <EditToolbar
+              editing={editing}
+              visible={stored.visible}
+              onToggleEdit={() => setEditing((e) => !e)}
+              onAdd={handleAdd}
+              onReset={handleReset}
+            />
+          )}
           <button className="fs-btn" onClick={toggleFs} title={isFs ? 'Exit fullscreen' : 'Enter fullscreen'}>
             {isFs ? '⤡' : '⤢'}
           </button>

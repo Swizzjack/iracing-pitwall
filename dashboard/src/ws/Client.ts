@@ -1,4 +1,5 @@
 import type { ServerMessage } from '@shared/ServerMessage'
+import type { ClientMessage } from '@shared/ClientMessage'
 
 export type ConnectionState = 'connecting' | 'open' | 'closed'
 
@@ -43,6 +44,12 @@ export class WsClient {
     }
     ws.onerror = () => {
       // onclose will follow and trigger reconnect
+    }
+  }
+
+  send(msg: ClientMessage): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(msg))
     }
   }
 

@@ -1,5 +1,6 @@
 //! WebSocket-Server + Message-Protokoll.
 
+pub mod client;
 pub mod handler;
 pub mod lifecycle;
 pub mod protocol;

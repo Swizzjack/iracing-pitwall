@@ -22,6 +22,8 @@ pub struct FinishTracker {
     /// False until the first `observe()` call after a reset.
     initialized: bool,
     checkered_seen: bool,
+    /// Set to true once `checkered_edge_fired()` has returned `Some`.
+    edge_consumed: bool,
     /// CarIdxLap value from the previous observe() call.
     prev_lap: HashMap<i32, i32>,
     /// Cars whose CarIdxLap incremented in the most recent observe() call.
@@ -47,6 +49,7 @@ impl FinishTracker {
             self.last_session_num = session_num;
             self.initialized = false;
             self.checkered_seen = false;
+            self.edge_consumed = false;
             self.prev_lap.clear();
             self.incremented_this_tick.clear();
             self.frozen.clear();
@@ -92,6 +95,18 @@ impl FinishTracker {
     /// Whether the session-wide checkered flag has been observed.
     pub fn checkered(&self) -> bool {
         self.checkered_seen
+    }
+
+    /// Returns the current `sub_session_id` exactly once when the checkered flag
+    /// transitions from unseen to seen. Returns `None` on all subsequent calls
+    /// (and after a reset). Use this to trigger a one-shot results fetch.
+    pub fn checkered_edge_fired(&mut self) -> Option<i64> {
+        if self.checkered_seen && !self.edge_consumed {
+            self.edge_consumed = true;
+            Some(self.last_subsession_id)
+        } else {
+            None
+        }
     }
 
     /// Whether this car's lap counter incremented in the current tick.

@@ -48,16 +48,24 @@ pub struct TelemetrySnapshot {
     pub player_class_position: i32,
     pub on_pit_road: bool,
 
-    // Tires — 4 corners × (temp L/M/R, pressure, wear L/M/R)
+    // Tires — 4 corners × (carcass temp L/M/R, pressure, wear L/M/R)
     pub tire_temp_lf: [f32; 3],
     pub tire_temp_rf: [f32; 3],
     pub tire_temp_lr: [f32; 3],
     pub tire_temp_rr: [f32; 3],
-    pub tire_pressure: [f32; 4], // LF, RF, LR, RR
+    pub tire_cold_pressure: [f32; 4], // LF, RF, LR, RR — setup cold target
     pub tire_wear_lf: [f32; 3],
     pub tire_wear_rf: [f32; 3],
     pub tire_wear_lr: [f32; 3],
     pub tire_wear_rr: [f32; 3],
+    // Extended tire vars (car-class specific — None if car doesn't expose them)
+    pub tire_pressure: Option<[f32; 4]>,         // live hot pressure LF/RF/LR/RR
+    pub tire_temp_surface_lf: Option<[f32; 3]>,  // surface temps inner/mid/outer
+    pub tire_temp_surface_rf: Option<[f32; 3]>,
+    pub tire_temp_surface_lr: Option<[f32; 3]>,
+    pub tire_temp_surface_rr: Option<[f32; 3]>,
+    pub tire_speed: Option<[f32; 4]>,            // wheel rotation rad/s LF/RF/LR/RR
+    pub tire_ride_height: Option<[f32; 4]>,      // ride height LF/RF/LR/RR
 
     // Engine
     pub water_temp: f32,
@@ -176,7 +184,7 @@ impl TelemetrySnapshot {
             tire_temp_rf: corner_temps(client, "RF")?,
             tire_temp_lr: corner_temps(client, "LR")?,
             tire_temp_rr: corner_temps(client, "RR")?,
-            tire_pressure: [
+            tire_cold_pressure: [
                 client.get_f32("LFcoldPressure")?,
                 client.get_f32("RFcoldPressure")?,
                 client.get_f32("LRcoldPressure")?,
@@ -186,6 +194,13 @@ impl TelemetrySnapshot {
             tire_wear_rf: corner_wear(client, "RF")?,
             tire_wear_lr: corner_wear(client, "LR")?,
             tire_wear_rr: corner_wear(client, "RR")?,
+            tire_pressure: four_corners_opt(client, "pressure"),
+            tire_temp_surface_lf: corner_surface_temps_opt(client, "LF"),
+            tire_temp_surface_rf: corner_surface_temps_opt(client, "RF"),
+            tire_temp_surface_lr: corner_surface_temps_opt(client, "LR"),
+            tire_temp_surface_rr: corner_surface_temps_opt(client, "RR"),
+            tire_speed: four_corners_opt(client, "speed"),
+            tire_ride_height: four_corners_opt(client, "rideHeight"),
 
             // Engine
             water_temp: client.get_f32("WaterTemp")?,
@@ -273,5 +288,22 @@ fn corner_wear(client: &IRacingClient, prefix: &str) -> Result<[f32; 3]> {
         client.get_f32(&format!("{prefix}wearL"))?,
         client.get_f32(&format!("{prefix}wearM"))?,
         client.get_f32(&format!("{prefix}wearR"))?,
+    ])
+}
+
+fn corner_surface_temps_opt(client: &IRacingClient, prefix: &str) -> Option<[f32; 3]> {
+    Some([
+        client.get_f32(&format!("{prefix}tempL")).ok()?,
+        client.get_f32(&format!("{prefix}tempM")).ok()?,
+        client.get_f32(&format!("{prefix}tempR")).ok()?,
+    ])
+}
+
+fn four_corners_opt(client: &IRacingClient, suffix: &str) -> Option<[f32; 4]> {
+    Some([
+        client.get_f32(&format!("LF{suffix}")).ok()?,
+        client.get_f32(&format!("RF{suffix}")).ok()?,
+        client.get_f32(&format!("LR{suffix}")).ok()?,
+        client.get_f32(&format!("RR{suffix}")).ok()?,
     ])
 }
