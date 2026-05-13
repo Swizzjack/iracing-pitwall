@@ -114,6 +114,8 @@ pub struct SessionEntry {
     pub session_type: String,
     #[serde(rename = "SessionName", default)]
     pub session_name: String,
+    #[serde(rename = "SessionTrackRubberState", default)]
+    pub session_track_rubber_state: Option<String>,
     #[serde(rename = "ResultsPositions", default)]
     pub results_positions: Option<Vec<ResultPosition>>,
 }

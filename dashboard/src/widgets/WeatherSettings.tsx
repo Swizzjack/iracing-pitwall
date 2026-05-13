@@ -9,7 +9,7 @@ import { CSS } from '@dnd-kit/utilities'
 export type WeatherFieldId =
   | 'skies' | 'airTemp' | 'trackTemp' | 'wetness' | 'declaredWet'
   | 'precipitation' | 'wind' | 'humidity' | 'fog' | 'pressure' | 'density'
-  | 'timeOfDay' | 'weatherType'
+  | 'timeOfDay' | 'weatherType' | 'rubberState'
 
 export type TempUnit = 'C' | 'F'
 export type SpeedUnit = 'kmh' | 'mph'
@@ -28,10 +28,11 @@ const FIELD_LABELS: Record<WeatherFieldId, string> = {
   density: 'Air Density',
   timeOfDay: 'Time of Day',
   weatherType: 'Weather Mode',
+  rubberState: 'Track Rubber',
 }
 
 export const DEFAULT_FIELD_ORDER: WeatherFieldId[] = [
-  'skies', 'airTemp', 'trackTemp', 'wetness', 'declaredWet',
+  'skies', 'airTemp', 'trackTemp', 'wetness', 'rubberState', 'declaredWet',
   'precipitation', 'wind', 'humidity', 'fog', 'pressure', 'density',
   'timeOfDay', 'weatherType',
 ]

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Sun, CloudSun, Cloud, CloudFog, CloudRain,
-  Thermometer, Wind, Droplets, Gauge, Eye, Clock, Activity, Info,
+  Thermometer, Wind, Droplets, Gauge, Eye, Clock, Activity, Info, Layers,
 } from 'lucide-react'
 import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
@@ -261,6 +261,16 @@ function renderField(
       const wt = info?.WeekendInfo?.TrackWeatherType
       return wt
         ? <KvRow label="Weather Mode" value={wt} Icon={Info} />
+        : null
+    }
+
+    case 'rubberState': {
+      const session = info?.SessionInfo?.Sessions?.find(
+        (s) => s.SessionNum === snap.sessionNum
+      )
+      const rs = session?.SessionTrackRubberState
+      return rs
+        ? <KvRow label="Track Rubber" value={rs} Icon={Layers} />
         : null
     }
   }
