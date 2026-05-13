@@ -17,6 +17,7 @@ const DEFAULT_POSITIONS = [
   { x: 6, y: 24 },  // fuel
   { x: 0, y: 33 },  // electronics
   { x: 6, y: 33 },  // tire
+  { x: 0, y: 44 },  // lapHistory
 ]
 
 export function buildDefaultLayout(): StoredLayout {

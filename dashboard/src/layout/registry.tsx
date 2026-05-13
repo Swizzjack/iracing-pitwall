@@ -11,6 +11,7 @@ import { Weather } from '../widgets/Weather'
 import { Fuel } from '../widgets/Fuel'
 import { Electronics } from '../widgets/Electronics'
 import { Tire } from '../widgets/Tire'
+import { LapHistory } from '../widgets/LapHistory'
 
 export type WidgetData = {
   tel: TelemetrySnapshot | null
@@ -74,5 +75,11 @@ export const REGISTRY: WidgetDef[] = [
     title: 'Tires',
     render: (d) => <Tire snap={d.tel} />,
     default: { w: 6, h: 11, minW: 3, minH: 3 },
+  },
+  {
+    id: 'lapHistory',
+    title: 'Lap History',
+    render: (d) => <LapHistory snap={d.tel} info={d.info} />,
+    default: { w: 5, h: 9, minW: 3, minH: 3 },
   },
 ]
