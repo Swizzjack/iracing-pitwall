@@ -194,7 +194,7 @@ export function ElectronicsCluster({ snap, fields, fontScale }: Props) {
   const oilPressColor = snap.oilPress < 2.5 ? '#ef4444' : '#ccc'
 
   return (
-    <div style={{ '--widget-font-scale': fontScale } as React.CSSProperties}>
+    <div style={{ '--widget-font-scale-local': fontScale } as React.CSSProperties}>
       {/* Arc + center */}
       <div style={{ position: 'relative' }}>
         <RpmArc snap={snap} />

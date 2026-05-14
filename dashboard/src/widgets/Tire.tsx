@@ -223,7 +223,7 @@ export function Tire({ snap }: Props) {
   const visibleOrder = order.filter(id => !hidden.has(id))
 
   return (
-    <section className="card" style={{ '--widget-font-scale': fontScale } as React.CSSProperties}>
+    <section className="card" style={{ '--widget-font-scale-local': fontScale } as React.CSSProperties}>
       <h2 style={{ display: 'flex', alignItems: 'center' }}>
         Tires
         <button

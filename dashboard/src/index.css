@@ -2,6 +2,7 @@
   --font-heading: 'Teko', sans-serif;
   --font-body: 'Roboto Condensed', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+  --ui-scale: 1;
 
   font-family: var(--font-body);
   font-size: 14px;

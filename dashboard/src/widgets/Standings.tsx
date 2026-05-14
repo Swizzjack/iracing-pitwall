@@ -409,7 +409,7 @@ export function Standings({ snap, playerCarIdx }: Props) {
   )
 
   return (
-    <section className="card" style={{ '--widget-font-scale': fontScale } as React.CSSProperties}>
+    <section className="card" style={{ '--widget-font-scale-local': fontScale } as React.CSSProperties}>
       <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span>Standings <span className="muted">— {snap.sessionType} ({snap.entries.length})</span></span>
         {sofNode}

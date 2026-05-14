@@ -9,7 +9,16 @@ import { WsClient, type ConnectionState } from './ws/Client'
 import { Dashboard } from './layout/Dashboard'
 import { EditToolbar } from './layout/EditToolbar'
 import { loadLayout, saveLayout, resetLayout, type StoredLayout } from './layout/storage'
+import { SettingsDrawer } from './components/SettingsDrawer'
 import './App.css'
+
+const UI_SCALE_KEY = 'iracing-ui-scale-v1'
+
+function loadUiScale(): number {
+  const raw = localStorage.getItem(UI_SCALE_KEY)
+  const n = raw ? parseFloat(raw) : NaN
+  return Number.isFinite(n) && n >= 0.8 && n <= 2.0 ? n : 1.0
+}
 
 type View = 'dashboard'
 
@@ -29,6 +38,8 @@ function App() {
   const [editing, setEditing] = useState(false)
   const [stored, setStored] = useState<StoredLayout>(loadLayout)
   const [view] = useState<View>('dashboard')
+  const [uiScale, setUiScale] = useState<number>(loadUiScale)
+  const [showGlobalSettings, setShowGlobalSettings] = useState(false)
 
   // 60 Hz telemetry → throttle to one render per animation frame
   const pendingTel = useRef<TelemetrySnapshot | null>(null)
@@ -41,6 +52,11 @@ function App() {
     document.addEventListener('fullscreenchange', onChange)
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--ui-scale', String(uiScale))
+    localStorage.setItem(UI_SCALE_KEY, String(uiScale))
+  }, [uiScale])
 
   const toggleFs = () => {
     if (document.fullscreenElement) document.exitFullscreen()
@@ -148,8 +164,48 @@ function App() {
           <button className="fs-btn" onClick={toggleFs} title={isFs ? 'Exit fullscreen' : 'Enter fullscreen'}>
             {isFs ? '⤡' : '⤢'}
           </button>
+          <button
+            className={`fs-btn${showGlobalSettings ? ' header-btn-active' : ''}`}
+            onClick={() => setShowGlobalSettings(v => !v)}
+            title="UI-Einstellungen"
+          >⚙</button>
         </div>
       </header>
+      <SettingsDrawer
+        open={showGlobalSettings}
+        onClose={() => setShowGlobalSettings(false)}
+        title="UI-Einstellungen"
+        variant="global"
+      >
+        <div className="settings-drawer-footer">
+          <div className="settings-section">
+            <div className="settings-section-title">UI-Skalierung</div>
+            <div className="settings-footer-row">
+              <label style={{ color: '#888', fontSize: 12 }}>Größe</label>
+              <input
+                type="range" min={0.8} max={2.0} step={0.05}
+                value={uiScale}
+                onChange={e => setUiScale(parseFloat(e.target.value))}
+                style={{ flex: 1 }}
+              />
+              <span style={{ color: '#888', fontSize: 12, minWidth: 36, textAlign: 'right' }}>
+                {Math.round(uiScale * 100)}%
+              </span>
+            </div>
+            <div style={{ color: '#555', fontSize: 11, marginTop: 8, lineHeight: 1.4 }}>
+              Skaliert Header, Buttons und Widget-Inhalte global.
+              Multipliziert mit den Per-Widget-Reglern.
+            </div>
+            {uiScale !== 1.0 && (
+              <button
+                className="header-btn header-btn-danger"
+                style={{ marginTop: 10, width: '100%' }}
+                onClick={() => setUiScale(1.0)}
+              >Zurücksetzen (100%)</button>
+            )}
+          </div>
+        </div>
+      </SettingsDrawer>
       <main>
         <Dashboard
           data={{ tel, standings, info, trackMap }}

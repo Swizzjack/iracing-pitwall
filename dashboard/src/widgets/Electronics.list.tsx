@@ -148,7 +148,7 @@ export function ElectronicsList({ snap, fields, fontScale }: Props) {
   ) as Record<string, ResolvedField[]>
 
   return (
-    <div style={{ '--widget-font-scale': fontScale } as React.CSSProperties}>
+    <div style={{ '--widget-font-scale-local': fontScale } as React.CSSProperties}>
       {groups.map(group => {
         const gFields = byGroup[group]
         if (gFields.length === 0) return null

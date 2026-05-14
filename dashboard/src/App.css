@@ -14,7 +14,7 @@ header {
 }
 
 header h1 {
-  font-size: 18px;
+  font-size: calc(18px * var(--ui-scale, 1));
   margin: 0;
   letter-spacing: 0.04em;
   color: #facc15;
@@ -24,7 +24,7 @@ header h1 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-scale, 1));
   font-family: var(--font-mono);
   color: #888;
 }
@@ -58,7 +58,7 @@ header h1 {
 .lan-url {
   color: #22c55e;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--ui-scale, 1));
   text-decoration: none;
   opacity: 0.7;
   border: 1px solid #22c55e33;
@@ -93,12 +93,13 @@ main {
   overflow: hidden;
   box-sizing: border-box;
   position: relative;
+  --widget-font-scale: calc(var(--ui-scale, 1) * var(--widget-font-scale-local, 1));
 }
 
 .card h2 {
   flex: 0 0 auto;
   margin: 0 0 10px;
-  font-size: 16px;
+  font-size: calc(16px * var(--ui-scale, 1));
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #f97316;
@@ -122,7 +123,7 @@ main {
 
 .muted {
   color: #666;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-scale, 1));
 }
 
 .mono {
@@ -347,8 +348,8 @@ main {
   color: #888;
   border: 1px solid #333;
   border-radius: 4px;
-  padding: 4px 9px;
-  font-size: 14px;
+  padding: calc(4px * var(--ui-scale, 1)) calc(9px * var(--ui-scale, 1));
+  font-size: calc(14px * var(--ui-scale, 1));
   cursor: pointer;
   font-family: inherit;
   line-height: 1;
@@ -381,21 +382,29 @@ main {
   text-shadow: 0 0 2px rgba(0,0,0,0.8);
 }
 
-.fs-btn {
+.fs-btn,
+.settings-btn {
   background: transparent;
   color: #888;
   border: 1px solid #222;
   border-radius: 4px;
-  padding: 4px 9px;
-  font-size: 14px;
+  padding: calc(4px * var(--ui-scale, 1)) calc(9px * var(--ui-scale, 1));
+  font-size: calc(14px * var(--ui-scale, 1));
   cursor: pointer;
   font-family: inherit;
   line-height: 1;
 }
 
-.fs-btn:hover {
+.fs-btn:hover,
+.settings-btn:hover {
   color: #facc15;
   border-color: #facc15;
+}
+
+.fs-btn.header-btn-active {
+  color: #facc15;
+  border-color: #facc15;
+  background: #facc1510;
 }
 
 /* ── Widget remove button ───────────────────────────────────────────────── */
@@ -551,6 +560,20 @@ details ul {
 }
 
 .settings-drawer-close:hover { color: #ddd; background: #2a2a2a; }
+
+.settings-drawer.global {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  z-index: 1000;
+}
+
+.settings-drawer-backdrop.global {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+}
 
 .settings-drawer-body {
   flex: 1;
@@ -791,7 +814,7 @@ details ul {
 /* ── Standings SoF title badge ──────────────────────────────────────────── */
 
 .standings-sof {
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-scale, 1));
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.03em;

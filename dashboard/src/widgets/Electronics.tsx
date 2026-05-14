@@ -259,7 +259,7 @@ export function Electronics({ snap }: Props) {
   const fields = getActiveFields(snap, order, hidden)
 
   return (
-    <section className="card" style={{ '--widget-font-scale': fontScale } as React.CSSProperties}>
+    <section className="card" style={{ '--widget-font-scale-local': fontScale } as React.CSSProperties}>
       <h2 style={{ display: 'flex', alignItems: 'center' }}>
         <Cpu size={14} style={{ marginRight: 5, flexShrink: 0 }} />
         Electronics

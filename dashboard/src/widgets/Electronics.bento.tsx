@@ -232,7 +232,7 @@ export function ElectronicsBento({ snap, fields, fontScale }: Props) {
   const showHero = showGear || showRpm || hasDrs || (showP2p && hasP2pData) || snap.onPitRoad
 
   return (
-    <div style={{ '--widget-font-scale': fontScale } as React.CSSProperties}>
+    <div style={{ '--widget-font-scale-local': fontScale } as React.CSSProperties}>
       {showHero && <Hero snap={snap} fontScale={fontScale} showGear={showGear} showRpm={showRpm} showP2p={showP2p} />}
 
       <div className="elec-bento-grid">
