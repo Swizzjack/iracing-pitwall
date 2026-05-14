@@ -18,6 +18,33 @@ function fmtTemp(c: number): string {
   return `${c.toFixed(1)}°`
 }
 
+function fmtGap(diffSec: number): string {
+  const sign = diffSec >= 0 ? '+' : '−'
+  return `${sign}${Math.abs(diffSec).toFixed(3)}`
+}
+
+// ─── Rubber state abbreviations ──────────────────────────────────────────────
+
+const RUBBER_SHORT: Record<string, string> = {
+  'clean':                  'Clean',
+  'slight usage':           'Slight',
+  'low usage':              'Low',
+  'moderately low usage':   'Mod.Low',
+  'moderate usage':         'Mod',
+  'moderately high usage':  'Mod.High',
+  'high usage':             'High',
+  'extensive usage':        'Ext',
+  'maximum usage':          'Max',
+  'carry over':             'C/O',
+}
+
+// ─── Best clean lap ───────────────────────────────────────────────────────────
+
+function bestCleanTime(history: LapRecord[]): number | null {
+  const clean = history.filter(r => r.valid && r.incidents === 0)
+  return clean.length > 0 ? Math.min(...clean.map(r => r.lapTimeSec)) : null
+}
+
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
 const PREFS_KEY = 'iracing-laphistory-prefs-v1'
@@ -52,7 +79,6 @@ function savePrefs(p: Prefs) {
 function sortedHistory(history: LapRecord[], order: SortOrder): LapRecord[] {
   if (order === 'newest') return [...history].reverse()
   if (order === 'oldest') return [...history]
-  // fastest: sort valid laps first by time, then invalid at end
   return [...history].sort((a, b) => {
     if (a.valid && !b.valid) return -1
     if (!a.valid && b.valid) return 1
@@ -65,43 +91,63 @@ function sortedHistory(history: LapRecord[], order: SortOrder): LapRecord[] {
 function LapRow({
   record,
   isBest,
+  bestClean,
+  hasWetness,
 }: {
   record: LapRecord
   isBest: boolean
   fontScale: number
+  bestClean: number | null
+  hasWetness: boolean
 }) {
-  const isSpecial = record.isInLap || record.isOutLap || !record.valid
+  const isSpecial = record.isOutLap || !record.valid
   const baseColor = isBest ? '#facc15' : isSpecial ? '#555' : '#ccc'
   const timeColor = isBest ? '#facc15' : isSpecial ? '#555' : '#e5e7eb'
 
-  const badge = record.isInLap
-    ? 'IN'
-    : record.isOutLap
-      ? 'OUT'
-      : !record.valid
-        ? 'INV'
-        : null
+  const badge = record.isOutLap
+    ? 'OUT'
+    : !record.valid
+      ? 'INV'
+      : null
 
   const wetnessLabel = record.trackWetness != null && record.trackWetness > 0
     ? ['', 'Dry', 'M.Dry', 'V.Lt', 'Lt', 'Mod', 'Wet', 'St.Wt'][record.trackWetness] ?? `${record.trackWetness}`
     : null
 
   const rubberShort = record.trackRubberState
-    ? record.trackRubberState.replace(/\bmoderate(ly)?\b/i, 'mod').replace(/\busage\b/i, '').trim()
+    ? (RUBBER_SHORT[record.trackRubberState.toLowerCase()] ?? record.trackRubberState)
     : null
 
   const fs = (px: number) => `calc(${px}px * var(--widget-font-scale, 1))`
 
+  const incDotColor = record.incidents > 0 ? '#ef4444' : '#22c55e'
+  const incTooltip = record.incidents > 0 ? `${record.incidents}x Inc` : 'Clean'
+
+  const gapDisplay = (() => {
+    if (bestClean == null || record.lapTimeSec <= 0) return '–'
+    if (record.lapTimeSec === bestClean && record.valid && record.incidents === 0) return '–'
+    return fmtGap(record.lapTimeSec - bestClean)
+  })()
+
   return (
     <tr style={{ opacity: isSpecial ? 0.55 : 1 }}>
-      <td style={{ color: baseColor, fontFamily: 'var(--font-mono)', fontSize: fs(12), padding: '3px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+      <td
+        title={incTooltip}
+        style={{ color: baseColor, fontFamily: 'var(--font-mono)', fontSize: fs(12), padding: '3px 6px 3px 8px', textAlign: 'left', whiteSpace: 'nowrap' }}
+      >
+        <span style={{
+          display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
+          background: incDotColor, marginRight: 5, verticalAlign: 'middle',
+          opacity: isSpecial ? 0.4 : 1,
+          flexShrink: 0,
+        }} />
         {isBest && <span style={{ color: '#facc15', marginRight: 3 }}>★</span>}
         L{record.lapNumber}
         {badge && (
           <span style={{
             marginLeft: 4, fontSize: fs(10), fontWeight: 700,
             background: '#1f1f1f', borderRadius: 3, padding: '0 4px',
-            color: record.isInLap || record.isOutLap ? '#f97316' : '#555',
+            color: record.isOutLap ? '#f97316' : '#555',
           }}>
             {badge}
           </span>
@@ -109,6 +155,9 @@ function LapRow({
       </td>
       <td style={{ color: timeColor, fontFamily: 'var(--font-mono)', fontWeight: isBest ? 700 : 400, fontSize: fs(13), padding: '3px 6px', textAlign: 'right' }}>
         {fmtTime(record.lapTimeSec)}
+      </td>
+      <td style={{ color: '#94a3b8', fontFamily: 'var(--font-mono)', fontSize: fs(11), padding: '3px 6px', textAlign: 'right' }}>
+        {gapDisplay}
       </td>
       <td style={{ color: '#60a5fa', fontFamily: 'var(--font-mono)', fontSize: fs(11), padding: '3px 6px', textAlign: 'right' }}>
         {fmtTemp(record.airTemp)}
@@ -119,9 +168,9 @@ function LapRow({
       <td style={{ color: '#a78bfa', fontSize: fs(10), padding: '3px 6px', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {rubberShort ?? '–'}
       </td>
-      {wetnessLabel != null && (
+      {hasWetness && (
         <td style={{ color: '#38bdf8', fontSize: fs(10), padding: '3px 6px', whiteSpace: 'nowrap' }}>
-          {wetnessLabel}
+          {wetnessLabel ?? '–'}
         </td>
       )}
     </tr>
@@ -164,14 +213,17 @@ export function LapHistory({ snap, info }: Props) {
     )
   }
 
-  const validLaps = history.filter(r => r.valid)
-  const bestTime = validLaps.length > 0 ? Math.min(...validLaps.map(r => r.lapTimeSec)) : null
+  const bestTime = bestCleanTime(history)
 
   const displayed = sortedHistory(history, prefs.sortOrder)
   const hasWetness = history.some(r => r.trackWetness != null && r.trackWetness > 0)
 
+  // Column widths: Lap | Time | Gap | Air | Trk | Rubber | [Wet]
+  // Air, Trk, Rubber and Wet are equal width.
+  const equalCols = hasWetness ? 12 : 16
+
   return (
-    <section className="card" style={{ '--widget-font-scale': prefs.fontScale } as React.CSSProperties}>
+    <section className="card" style={{ '--widget-font-scale-local': prefs.fontScale } as React.CSSProperties}>
       <h2 style={{ display: 'flex', alignItems: 'center' }}>
         Lap History
         <button
@@ -204,20 +256,22 @@ export function LapHistory({ snap, info }: Props) {
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: '18%' }} />
-              <col style={{ width: '26%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: hasWetness ? '18%' : '28%' }} />
-              {hasWetness && <col style={{ width: '10%' }} />}
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '22%' }} />
+              <col style={{ width: '17%' }} />
+              <col style={{ width: `${equalCols}%` }} />
+              <col style={{ width: `${equalCols}%` }} />
+              <col style={{ width: `${equalCols}%` }} />
+              {hasWetness && <col style={{ width: `${equalCols}%` }} />}
             </colgroup>
             <thead>
               <tr style={{ borderBottom: '1px solid #1a1a1a' }}>
-                {['Lap', 'Time', 'Air', 'Trk', 'Rubber', ...(hasWetness ? ['Wet'] : [])].map(h => (
+                {['Lap', 'Time', 'Gap', 'Air', 'Trk', 'Rubber', ...(hasWetness ? ['Wet'] : [])].map(h => (
                   <th key={h} style={{
                     color: '#444', fontSize: `calc(10px * var(--widget-font-scale, 1))`,
                     fontWeight: 600, letterSpacing: '0.05em', padding: '2px 6px',
-                    textAlign: h === 'Lap' ? 'right' : h === 'Time' ? 'right' : h === 'Air' || h === 'Trk' ? 'right' : 'left',
+                    textAlign: h === 'Lap' || h === 'Rubber' || h === 'Wet' ? 'left' : 'right',
+                    paddingLeft: h === 'Lap' ? 8 : 6,
                   }}>{h}</th>
                 ))}
               </tr>
@@ -227,8 +281,10 @@ export function LapHistory({ snap, info }: Props) {
                 <LapRow
                   key={`${record.lapNumber}-${i}`}
                   record={record}
-                  isBest={bestTime !== null && record.lapTimeSec === bestTime && record.valid}
+                  isBest={bestTime !== null && record.lapTimeSec === bestTime && record.valid && record.incidents === 0}
                   fontScale={prefs.fontScale}
+                  bestClean={bestTime}
+                  hasWetness={hasWetness}
                 />
               ))}
             </tbody>

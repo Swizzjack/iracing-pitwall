@@ -1,8 +1,8 @@
 export type SortOrder = 'newest' | 'oldest' | 'fastest'
 
 const radioLabel: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 4,
-  color: '#aaa', fontSize: 12, cursor: 'pointer',
+  display: 'flex', alignItems: 'center', gap: 6,
+  color: '#ccc', fontSize: 12, cursor: 'pointer',
 }
 
 interface Props {
@@ -18,22 +18,19 @@ export function LapHistorySettings({ sortOrder, fontScale, onSortOrder, onFontSc
       <div className="settings-drawer-footer">
         <div className="settings-section">
           <div className="settings-section-title">Sortierung</div>
-          <div className="settings-footer-row">
-            <label style={{ color: '#888', fontSize: 12 }}>Reihenfolge</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginLeft: 'auto', alignItems: 'flex-end' }}>
-              {(['newest', 'oldest', 'fastest'] as SortOrder[]).map(v => (
-                <label key={v} style={radioLabel}>
-                  <input
-                    type="radio"
-                    name="lhsort"
-                    value={v}
-                    checked={sortOrder === v}
-                    onChange={() => onSortOrder(v)}
-                  />
-                  {v === 'newest' ? 'Neueste' : v === 'oldest' ? 'Älteste' : 'Schnellste'}
-                </label>
-              ))}
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {(['newest', 'oldest', 'fastest'] as SortOrder[]).map(v => (
+              <label key={v} style={radioLabel}>
+                <input
+                  type="radio"
+                  name="lhsort"
+                  value={v}
+                  checked={sortOrder === v}
+                  onChange={() => onSortOrder(v)}
+                />
+                {v === 'newest' ? 'Neueste' : v === 'oldest' ? 'Älteste' : 'Schnellste'}
+              </label>
+            ))}
           </div>
         </div>
 
