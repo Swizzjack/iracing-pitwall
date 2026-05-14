@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Sun, CloudSun, Cloud, CloudFog, CloudRain,
-  Thermometer, Wind, Droplets, Gauge, Eye, Clock, Activity, Info, Layers,
+  Thermometer, Wind, Droplets, Gauge, Eye, Clock, Activity, Info,
 } from 'lucide-react'
 import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
@@ -49,6 +49,36 @@ const WETNESS_COLORS = [
   '#555', '#22c55e', '#4ade80', '#a3e635', '#facc15',
   '#fb923c', '#3b82f6', '#2563eb',
 ]
+
+// ─── Rubber state config ──────────────────────────────────────────────────────
+
+const RUBBER_STATES = [
+  { label: 'Clean',      color: '#22c55e' },
+  { label: 'Slight',     color: '#65a30d' },
+  { label: 'Low',        color: '#a3e635' },
+  { label: 'Mod. Low',   color: '#d4c000' },
+  { label: 'Moderate',   color: '#facc15' },
+  { label: 'Mod. High',  color: '#f59e0b' },
+  { label: 'High',       color: '#f97316' },
+  { label: 'Extensive',  color: '#ef4444' },
+  { label: 'Maximum',    color: '#dc2626' },
+]
+
+const RUBBER_INDEX: Record<string, number> = {
+  'clean':                  0,
+  'slight usage':           1,
+  'low usage':              2,
+  'moderately low usage':   3,
+  'moderate usage':         4,
+  'moderately high usage':  5,
+  'high usage':             6,
+  'extensive usage':        7,
+  'maximum usage':          8,
+}
+
+function rubberStateIndex(state: string): number {
+  return RUBBER_INDEX[state.toLowerCase()] ?? -1
+}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -120,6 +150,38 @@ function WetnessBar({ value }: { value: number }) {
         {idx >= 0 && idx < 7 && (
           <span style={{ color, fontSize: 'calc(11px * var(--widget-font-scale, 1))', fontWeight: 600, marginLeft: 'auto' }}>
             {WETNESS_LABELS[value]}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function RubberStateBar({ value }: { value: string }) {
+  const idx = rubberStateIndex(value)
+  const isCarryOver = value.toLowerCase() === 'carry over'
+  const color = idx >= 0 ? RUBBER_STATES[idx].color : '#94a3b8'
+  const label = idx >= 0 ? RUBBER_STATES[idx].label : isCarryOver ? 'C/O' : null
+  return (
+    <div style={{ padding: '8px 0', borderBottom: '1px solid #1a1a1a' }}>
+      <div style={{ display: 'flex', gap: 2, marginBottom: 5 }}>
+        {RUBBER_STATES.map((s, i) => (
+          <div
+            key={i}
+            style={{
+              flex: 1, height: 6, borderRadius: 3,
+              background: i === idx ? s.color : '#1f1f1f',
+              boxShadow: i === idx ? `0 0 5px ${s.color}` : 'none',
+              transition: 'background 0.3s',
+            }}
+          />
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ color: '#555', fontSize: 'calc(11px * var(--widget-font-scale, 1))' }}>Track Rubber</span>
+        {label && (
+          <span style={{ color, fontSize: 'calc(11px * var(--widget-font-scale, 1))', fontWeight: 600, marginLeft: 'auto' }}>
+            {label}
           </span>
         )}
       </div>
@@ -269,9 +331,7 @@ function renderField(
         (s) => s.SessionNum === snap.sessionNum
       )
       const rs = session?.SessionTrackRubberState
-      return rs
-        ? <KvRow label="Track Rubber" value={rs} Icon={Layers} />
-        : null
+      return rs ? <RubberStateBar value={rs} /> : null
     }
   }
 }
@@ -287,7 +347,10 @@ function loadFields(): { order: WeatherFieldId[]; hidden: Set<WeatherFieldId> } 
     const raw = localStorage.getItem(FIELDS_KEY)
     if (raw) {
       const p = JSON.parse(raw)
-      const order = Array.isArray(p.order) ? p.order as WeatherFieldId[] : DEFAULT_FIELD_ORDER
+      const stored = Array.isArray(p.order) ? p.order as WeatherFieldId[] : DEFAULT_FIELD_ORDER
+      // Append fields added after the user last saved (e.g. rubberState)
+      const missing = DEFAULT_FIELD_ORDER.filter(id => !stored.includes(id))
+      const order = missing.length > 0 ? [...stored, ...missing] : stored
       const hidden = new Set<WeatherFieldId>(Array.isArray(p.hidden) ? p.hidden : [])
       return { order, hidden }
     }
@@ -382,7 +445,7 @@ export function Weather({ snap, info }: Props) {
   const visible = order.filter(id => !hidden.has(id))
 
   return (
-    <section className="card" style={{ '--widget-font-scale': fontScale } as React.CSSProperties}>
+    <section className="card" style={{ '--widget-font-scale-local': fontScale } as React.CSSProperties}>
       <h2 style={{ display: 'flex', alignItems: 'center' }}>
         Weather
         <button
