@@ -47,6 +47,7 @@ pub struct TelemetrySnapshot {
     pub player_position: i32,
     pub player_class_position: i32,
     pub on_pit_road: bool,
+    pub player_car_my_incident_count: Option<i32>,
 
     // Tires — 4 corners × (carcass temp L/M/R, pressure, wear L/M/R)
     pub tire_temp_lf: [f32; 3],
@@ -178,6 +179,7 @@ impl TelemetrySnapshot {
             player_position: client.get_i32("PlayerCarPosition")?,
             player_class_position: client.get_i32("PlayerCarClassPosition")?,
             on_pit_road: client.get_bool("OnPitRoad")?,
+            player_car_my_incident_count: client.get_i32("PlayerCarMyIncidentCount").ok(),
 
             // Tires
             tire_temp_lf: corner_temps(client, "LF")?,

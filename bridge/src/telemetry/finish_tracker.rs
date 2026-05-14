@@ -10,8 +10,9 @@ use crate::iracing_sdk::IRacingClient;
 use crate::telemetry::standings::StandingEntry;
 use std::collections::{HashMap, HashSet};
 
-/// iRacing SessionFlags bit for the checkered flag.
-const IRSDK_CHECKERED: u32 = 0x0000_0004;
+/// iRacing SessionFlags bit for the checkered flag (irsdk_checkered = 0x1).
+/// 0x4 is the GREEN flag — do not confuse the two.
+const IRSDK_CHECKERED: u32 = 0x0000_0001;
 
 /// Tracks which cars have crossed the S/F line under the checkered flag and
 /// stores frozen copies of their StandingEntry from that moment.
