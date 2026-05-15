@@ -4,17 +4,19 @@ interface Props {
   sfLength: number
   sectorShow: boolean
   sectorLength: number
+  fontSize: number
   onTrackWidth: (v: number) => void
   onCarRadius: (v: number) => void
   onSfLength: (v: number) => void
   onSectorShow: (v: boolean) => void
   onSectorLength: (v: number) => void
+  onFontSize: (v: number) => void
   onResetAll: () => void
 }
 
 export function TrackMapSettings({
-  trackWidth, carRadius, sfLength, sectorShow, sectorLength,
-  onTrackWidth, onCarRadius, onSfLength, onSectorShow, onSectorLength,
+  trackWidth, carRadius, sfLength, sectorShow, sectorLength, fontSize,
+  onTrackWidth, onCarRadius, onSfLength, onSectorShow, onSectorLength, onFontSize,
   onResetAll,
 }: Props) {
   return (
@@ -60,6 +62,16 @@ export function TrackMapSettings({
           <input type="range" min={4} max={40} step={1} value={sectorLength}
             onChange={e => onSectorLength(+e.target.value)} />
           <span>{sectorLength}px</span>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">Info overlay</div>
+        <div className="settings-footer-row">
+          <label>Font size</label>
+          <input type="range" min={8} max={20} step={1} value={fontSize}
+            onChange={e => onFontSize(+e.target.value)} />
+          <span>{fontSize}px</span>
         </div>
       </div>
 

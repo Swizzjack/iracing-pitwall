@@ -4,6 +4,7 @@ import type { SessionSummary } from '@shared/SessionSummary'
 import type { SessionDetail } from '@shared/SessionDetail'
 import type { FilterOptions } from '@shared/FilterOptions'
 import type { ResultsFilter } from '@shared/ResultsFilter'
+import type { LapRow } from '@shared/LapRow'
 
 export interface ResultsState {
   sessions: SessionSummary[]
@@ -13,6 +14,9 @@ export interface ResultsState {
   loading: boolean
   oauthLinked: boolean
   oauthMemberName: string | null
+  laps: LapRow[] | null        // per-driver laps (LapByLapView)
+  lapsCarIdx: number | null
+  chartLaps: LapRow[] | null   // all-cars laps (Charts tab)
 }
 
 const DEFAULT_FILTER: ResultsFilter = {
@@ -27,6 +31,8 @@ const DEFAULT_FILTER: ResultsFilter = {
 }
 
 export function useResults(client: WsClient, active: boolean) {
+  const chartLoadPending = useRef(false)
+
   const [state, setState] = useState<ResultsState>({
     sessions: [],
     total: 0,
@@ -35,6 +41,9 @@ export function useResults(client: WsClient, active: boolean) {
     loading: false,
     oauthLinked: false,
     oauthMemberName: null,
+    laps: null,
+    lapsCarIdx: null,
+    chartLaps: null,
   })
   const [filter, setFilter] = useState<ResultsFilter>(DEFAULT_FILTER)
   const filterRef = useRef(filter)
@@ -56,7 +65,28 @@ export function useResults(client: WsClient, active: boolean) {
   )
 
   const closeDetail = useCallback(() => {
-    setState((s) => ({ ...s, detail: null }))
+    setState((s) => ({ ...s, detail: null, laps: null, lapsCarIdx: null, chartLaps: null }))
+  }, [])
+
+  const loadChartLaps = useCallback(
+    (subSessionId: number) => {
+      chartLoadPending.current = true
+      setState((s) => ({ ...s, chartLaps: null }))
+      client.send({ type: 'queryLaps', subSessionId, carIdx: null })
+    },
+    [client],
+  )
+
+  const loadLaps = useCallback(
+    (subSessionId: number, carIdx: number | null) => {
+      setState((s) => ({ ...s, laps: null, lapsCarIdx: carIdx }))
+      client.send({ type: 'queryLaps', subSessionId, carIdx })
+    },
+    [client],
+  )
+
+  const closeLaps = useCallback(() => {
+    setState((s) => ({ ...s, laps: null, lapsCarIdx: null }))
   }, [])
 
   const startOAuth = useCallback(() => {
@@ -70,7 +100,6 @@ export function useResults(client: WsClient, active: boolean) {
     [client],
   )
 
-  // Subscribe to WS messages relevant to results.
   useEffect(() => {
     const off = client.onMessage((msg) => {
       switch (msg.type) {
@@ -99,15 +128,21 @@ export function useResults(client: WsClient, active: boolean) {
           setState((s) => ({ ...s, filterOptions: msg.options }))
           break
         case 'resultsUpdated':
-          // Re-query to pick up the new entry.
           query(filterRef.current)
+          break
+        case 'lapsList':
+          if (chartLoadPending.current) {
+            chartLoadPending.current = false
+            setState((s) => ({ ...s, chartLaps: msg.laps }))
+          } else {
+            setState((s) => ({ ...s, laps: msg.laps }))
+          }
           break
       }
     })
     return off
   }, [client, query])
 
-  // Initial load when the view becomes active.
   useEffect(() => {
     if (!active) return
     client.send({ type: 'queryFilterOptions' })
@@ -123,5 +158,5 @@ export function useResults(client: WsClient, active: boolean) {
     [query],
   )
 
-  return { state, filter, applyFilter, loadDetail, closeDetail, startOAuth, triggerFetch }
+  return { state, filter, applyFilter, loadDetail, closeDetail, loadLaps, closeLaps, loadChartLaps, startOAuth, triggerFetch }
 }

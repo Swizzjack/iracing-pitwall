@@ -8,6 +8,7 @@
 pub mod finish_tracker;
 pub mod pit_tracker;
 pub mod sector_tracker;
+pub mod session_transition;
 pub mod snapshot;
 pub mod standings;
 pub mod track_map;

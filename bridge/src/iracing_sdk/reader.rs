@@ -15,14 +15,14 @@ use crate::iracing_sdk::header::IRSDK_VER_EXPECTED;
 use crate::iracing_sdk::var_header::VAR_HEADER_SIZE;
 
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
 #[cfg(windows)]
 use windows_sys::Win32::System::Memory::{
     MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ, MEMORY_MAPPED_VIEW_ADDRESS,
 };
 #[cfg(windows)]
 use windows_sys::Win32::System::Threading::{
-    OpenEventW, WaitForSingleObject, INFINITE, SYNCHRONIZATION_SYNCHRONIZE,
+    OpenEventW, WaitForSingleObject, SYNCHRONIZATION_SYNCHRONIZE,
 };
 
 #[cfg(windows)]
@@ -193,8 +193,22 @@ impl IRacingClient {
         #[cfg(windows)]
         {
             // Step 1: Block until iRacing signals the data-valid event.
+            // 2 s timeout so we can detect a disconnected / idle sim without hanging forever.
             // SAFETY: event_handle is a valid auto-reset event handle.
-            let wait_result = unsafe { WaitForSingleObject(self.event_handle, INFINITE) };
+            let wait_result = unsafe { WaitForSingleObject(self.event_handle, 2000) };
+            if wait_result == WAIT_TIMEOUT {
+                // Check the connected bit. Cleared when iRacing returns to main menu or exits.
+                // SAFETY: view_ptr is valid mapped memory.
+                let hdr: Header =
+                    unsafe { std::ptr::read_unaligned(self.view_ptr as *const Header) };
+                if !hdr.is_connected() {
+                    return Err(BridgeError::SdkNotConnected(
+                        "header connected-bit cleared".into(),
+                    ));
+                }
+                // Sim is running but paused / in menu without closing the MMF.
+                return Err(BridgeError::SdkRead("frame timeout (sim idle)".into()));
+            }
             if wait_result != WAIT_OBJECT_0 {
                 return Err(BridgeError::SdkRead(format!(
                     "WaitForSingleObject failed: {wait_result:#010x}"

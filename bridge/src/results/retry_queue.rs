@@ -14,11 +14,11 @@ use super::unix_now;
 
 const MAX_ATTEMPTS: i32 = 10;
 
-const BACKOFF_SECS: &[i64] = &[30, 60, 120, 300, 600];
+const BACKOFF_MS: &[i64] = &[30_000, 60_000, 120_000, 300_000, 600_000];
 
 fn next_delay(attempts: i32) -> i64 {
-    let idx = (attempts as usize).min(BACKOFF_SECS.len() - 1);
-    BACKOFF_SECS[idx]
+    let idx = (attempts as usize).min(BACKOFF_MS.len() - 1);
+    BACKOFF_MS[idx]
 }
 
 pub async fn run(

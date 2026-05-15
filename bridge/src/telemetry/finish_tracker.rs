@@ -5,7 +5,6 @@
 //! cleared so a new subsession / session starts fresh.
 
 use crate::error::Result;
-use crate::iracing_sdk::types::WeekendInfo;
 use crate::iracing_sdk::IRacingClient;
 use crate::telemetry::standings::StandingEntry;
 use std::collections::{HashMap, HashSet};
@@ -35,18 +34,19 @@ pub struct FinishTracker {
 
 impl FinishTracker {
     /// Call once per standings tick before `StandingsSnapshot::build`.
+    /// `sub_session_id` is the *effective* (possibly synthetic) ID.
     /// Reads `SessionFlags` and `CarIdxLap` to update internal state.
     pub fn observe(
         &mut self,
         client: &IRacingClient,
-        weekend: &WeekendInfo,
+        sub_session_id: i64,
         session_num: i32,
     ) -> Result<()> {
         // Reset on session/subsession change.
-        if weekend.sub_session_id != self.last_subsession_id
+        if sub_session_id != self.last_subsession_id
             || session_num != self.last_session_num
         {
-            self.last_subsession_id = weekend.sub_session_id;
+            self.last_subsession_id = sub_session_id;
             self.last_session_num = session_num;
             self.initialized = false;
             self.checkered_seen = false;
@@ -56,7 +56,7 @@ impl FinishTracker {
             self.frozen.clear();
             log::info!(
                 "finish_tracker: reset for subsession={} session={}",
-                weekend.sub_session_id,
+                sub_session_id,
                 session_num
             );
         }

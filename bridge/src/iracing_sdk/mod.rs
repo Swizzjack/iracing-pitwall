@@ -13,6 +13,7 @@ pub mod broadcast;
 pub mod events;
 pub mod header;
 pub mod reader;
+pub mod synthetic_id;
 pub mod types;
 pub mod var_header;
 pub mod yaml;

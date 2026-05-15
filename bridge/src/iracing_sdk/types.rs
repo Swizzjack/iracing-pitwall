@@ -96,6 +96,16 @@ pub struct WeekendInfo {
     pub sub_session_id: i64,
     #[serde(rename = "TrackWeatherType", default)]
     pub track_weather_type: Option<String>,
+    #[serde(rename = "TrackCity", default)]
+    pub track_city: Option<String>,
+    #[serde(rename = "TrackCountry", default)]
+    pub track_country: Option<String>,
+    #[serde(rename = "TrackAltitude", default)]
+    pub track_altitude: Option<String>,
+    #[serde(rename = "TrackNumTurns", default)]
+    pub track_num_turns: Option<i32>,
+    #[serde(rename = "TrackPitSpeedLimit", default)]
+    pub track_pit_speed_limit: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

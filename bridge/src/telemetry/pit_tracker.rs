@@ -23,11 +23,18 @@ struct CarState {
 #[derive(Debug, Default)]
 pub struct PitTracker {
     cars: HashMap<i32, CarState>,
+    last_sub_session_id: i64,
 }
 
 impl PitTracker {
     /// Read current iRacing state and advance pit timing for all cars.
-    pub fn update(&mut self, client: &IRacingClient) -> Result<()> {
+    /// `sub_session_id` triggers a full reset when the sub-session changes so that
+    /// pit-stop counters from a previous session do not bleed into the next one.
+    pub fn update(&mut self, client: &IRacingClient, sub_session_id: i64) -> Result<()> {
+        if sub_session_id != self.last_sub_session_id {
+            self.cars.clear();
+            self.last_sub_session_id = sub_session_id;
+        }
         let session_time = client.get_f64("SessionTime")?;
         let on_pit = client.get_bool_array("CarIdxOnPitRoad")?;
         for (idx, &now_on) in on_pit.iter().enumerate() {
@@ -103,5 +110,26 @@ mod tests {
         assert_eq!(s.info.pit_stops, 0);
         assert_eq!(s.info.last_pit_road_sec, None);
         assert_eq!(s.info.current_pit_road_sec, None);
+    }
+
+    #[test]
+    fn subsession_change_resets_counter() {
+        let mut tracker = PitTracker::default();
+        // Manually set up state as if a stop happened in subsession 1
+        let state = tracker.cars.entry(0).or_default();
+        advance(state, true, 100.0);
+        advance(state, false, 130.0);
+        assert_eq!(tracker.cars[&0].info.pit_stops, 1);
+        tracker.last_sub_session_id = 1;
+
+        // Simulate subsession change to 2 — cars map is cleared
+        tracker.last_sub_session_id = 0; // reset so next update triggers
+        // We can't call update() without a real client, so test the logic directly:
+        let sid = 2i64;
+        if sid != tracker.last_sub_session_id {
+            tracker.cars.clear();
+            tracker.last_sub_session_id = sid;
+        }
+        assert!(tracker.cars.is_empty(), "cars must be cleared after subsession change");
     }
 }

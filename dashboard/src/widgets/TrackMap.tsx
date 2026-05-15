@@ -2,12 +2,14 @@ import { useRef, useEffect, useState } from 'react'
 import type { TrackMapSnapshot } from '@shared/TrackMapSnapshot'
 import type { TrackShape } from '@shared/TrackShape'
 import type { TrackCar } from '@shared/TrackCar'
+import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { TrackMapSettings } from './TrackMapSettings'
 
 interface Props {
   snap: TrackMapSnapshot | null
   playerCarIdx: number | null
+  info: SessionInfoYaml | null
 }
 
 // ─── Settings persistence ─────────────────────────────────────────────────────
@@ -17,6 +19,7 @@ const CAR_R_KEY      = 'iracing-trackmap-car-size'
 const SF_LEN_KEY     = 'iracing-trackmap-sf-length'
 const SECTOR_SHOW_KEY = 'iracing-trackmap-sector-show'
 const SECTOR_LEN_KEY  = 'iracing-trackmap-sector-length'
+const FONT_SIZE_KEY   = 'iracing-trackmap-font-size'
 
 function loadNum(key: string, def: number, min: number, max: number): number {
   try {
@@ -41,6 +44,15 @@ function classColor(hex: number | bigint | null): string {
   const n = typeof hex === 'bigint' ? Number(hex) : hex
   const c = Math.max(0, Math.min(0xffffff, n))
   return `#${c.toString(16).padStart(6, '0')}`
+}
+
+// ─── Interpolation helper ─────────────────────────────────────────────────────
+
+function lerpPct(a: number, b: number, t: number): number {
+  let d = b - a
+  if (d >  0.5) d -= 1  // shortest path across S/F wrap
+  if (d < -0.5) d += 1
+  return ((a + d * t) % 1 + 1) % 1
 }
 
 // ─── Shape path cache ─────────────────────────────────────────────────────────
@@ -167,11 +179,17 @@ const RESAMPLE_N = 512
 
 // ─── Widget ───────────────────────────────────────────────────────────────────
 
-export function TrackMap({ snap, playerCarIdx }: Props) {
+export function TrackMap({ snap, playerCarIdx, info }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef   = useRef<number>(0)
   const dataRef   = useRef({ snap, playerCarIdx })
   const cacheRef  = useRef<ShapeCache | null>(null)
+  const interpRef = useRef<{
+    prevSnap: TrackMapSnapshot | null
+    prevTs: number
+    currSnap: TrackMapSnapshot | null
+    currTs: number
+  }>({ prevSnap: null, prevTs: 0, currSnap: null, currTs: 0 })
 
   const [trackWidth,   setTrackWidth]   = useState(() => loadNum(TRACK_W_KEY, 8, 2, 24))
   const [carRadius,    setCarRadius]    = useState(() => loadNum(CAR_R_KEY, 7, 3, 16))
@@ -180,12 +198,20 @@ export function TrackMap({ snap, playerCarIdx }: Props) {
     try { return localStorage.getItem(SECTOR_SHOW_KEY) !== 'false' } catch { return true }
   })
   const [sectorLength, setSectorLength] = useState(() => loadNum(SECTOR_LEN_KEY, 12, 4, 40))
+  const [fontSize,     setFontSize]     = useState(() => loadNum(FONT_SIZE_KEY, 12, 8, 20))
   const [showSettings, setShowSettings] = useState(false)
 
   const settingsRef = useRef<DrawSettings>({ trackWidth, carRadius, sfLength, sectorShow, sectorLength })
   settingsRef.current = { trackWidth, carRadius, sfLength, sectorShow, sectorLength }
 
   // Keep latest props accessible in the rAF loop without re-scheduling.
+  // Detect new snapshots (reference change) and update interpolation state.
+  if (snap !== interpRef.current.currSnap) {
+    interpRef.current.prevSnap = interpRef.current.currSnap
+    interpRef.current.prevTs   = interpRef.current.currTs
+    interpRef.current.currSnap = snap
+    interpRef.current.currTs   = performance.now()
+  }
   dataRef.current = { snap, playerCarIdx }
 
   useEffect(() => {
@@ -218,8 +244,17 @@ export function TrackMap({ snap, playerCarIdx }: Props) {
 
       const { shape, cars } = snap
 
+      // Compute interpolation factor: 1.0 = current snapshot, >1.0 = extrapolation.
+      const { prevSnap, prevTs, currTs } = interpRef.current
+      const now = performance.now()
+      const interval = currTs - prevTs
+      const t = prevSnap !== null && interval > 16
+        ? Math.min(1.8, (now - prevTs) / interval)
+        : 1
+      const prevCars = prevSnap?.cars ?? cars
+
       if (!shape) {
-        drawTrackPlaceholder(ctx, w, h, cars, snap.playerCarIdx, settings)
+        drawTrackPlaceholder(ctx, w, h, cars, prevCars, t, snap.playerCarIdx, settings)
         drawOverlay(ctx, w, h, 'Recording lap…  drive a clean lap to capture the track')
         animRef.current = requestAnimationFrame(draw)
         return
@@ -234,7 +269,7 @@ export function TrackMap({ snap, playerCarIdx }: Props) {
       const cache = cacheRef.current
 
       drawTrackShape(ctx, cache, settings)
-      drawCars(ctx, cache, cars, playerCarIdx ?? snap.playerCarIdx, settings)
+      drawCars(ctx, cache, cars, prevCars, t, playerCarIdx ?? snap.playerCarIdx, settings)
 
       animRef.current = requestAnimationFrame(draw)
     }
@@ -248,11 +283,12 @@ export function TrackMap({ snap, playerCarIdx }: Props) {
   }
 
   function handleResetAll() {
-    setTrackWidth(8);   persist(TRACK_W_KEY, 8)
-    setCarRadius(7);    persist(CAR_R_KEY, 7)
-    setSfLength(12);    persist(SF_LEN_KEY, 12)
+    setTrackWidth(8);    persist(TRACK_W_KEY, 8)
+    setCarRadius(7);     persist(CAR_R_KEY, 7)
+    setSfLength(12);     persist(SF_LEN_KEY, 12)
     setSectorShow(true); persist(SECTOR_SHOW_KEY, true)
     setSectorLength(12); persist(SECTOR_LEN_KEY, 12)
+    setFontSize(12);     persist(FONT_SIZE_KEY, 12)
   }
 
   return (
@@ -281,11 +317,13 @@ export function TrackMap({ snap, playerCarIdx }: Props) {
             sfLength={sfLength}
             sectorShow={sectorShow}
             sectorLength={sectorLength}
+            fontSize={fontSize}
             onTrackWidth={v => { setTrackWidth(v); persist(TRACK_W_KEY, v) }}
             onCarRadius={v => { setCarRadius(v); persist(CAR_R_KEY, v) }}
             onSfLength={v => { setSfLength(v); persist(SF_LEN_KEY, v) }}
             onSectorShow={v => { setSectorShow(v); persist(SECTOR_SHOW_KEY, v) }}
             onSectorLength={v => { setSectorLength(v); persist(SECTOR_LEN_KEY, v) }}
+            onFontSize={v => { setFontSize(v); persist(FONT_SIZE_KEY, v) }}
             onResetAll={handleResetAll}
           />
         </SettingsDrawer>
@@ -294,6 +332,7 @@ export function TrackMap({ snap, playerCarIdx }: Props) {
             ref={canvasRef}
             style={{ display: 'block', width: '100%', height: '100%' }}
           />
+          <TrackInfoOverlay info={info} fontSize={fontSize} />
         </div>
       </div>
     </section>
@@ -377,6 +416,8 @@ function drawTrackPlaceholder(
   w: number,
   h: number,
   cars: TrackCar[],
+  prevCars: TrackCar[],
+  t: number,
   playerIdx: number,
   s: DrawSettings,
 ) {
@@ -395,17 +436,21 @@ function drawTrackPlaceholder(
     return [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r]
   }
 
+  const prevMap = new Map(prevCars.map((c) => [c.carIdx, c.lapDistPct]))
+
   // Draw non-player cars first.
   for (const car of cars) {
     if (car.carIdx === playerIdx) continue
     if (car.surface === -1) continue
-    const [sx, sy] = ptAtP(car.lapDistPct)
+    const pct = lerpPct(prevMap.get(car.carIdx) ?? car.lapDistPct, car.lapDistPct, t)
+    const [sx, sy] = ptAtP(pct)
     drawCarDot(ctx, sx, sy, car, false, s.carRadius)
   }
   // Player on top.
   for (const car of cars) {
     if (car.carIdx !== playerIdx) continue
-    const [sx, sy] = ptAtP(car.lapDistPct)
+    const pct = lerpPct(prevMap.get(car.carIdx) ?? car.lapDistPct, car.lapDistPct, t)
+    const [sx, sy] = ptAtP(pct)
     drawCarDot(ctx, sx, sy, car, true, s.carRadius)
   }
 }
@@ -414,9 +459,13 @@ function drawCars(
   ctx: CanvasRenderingContext2D,
   cache: ShapeCache,
   cars: TrackCar[],
+  prevCars: TrackCar[],
+  t: number,
   playerIdx: number,
   s: DrawSettings,
 ) {
+  const prevMap = new Map(prevCars.map((c) => [c.carIdx, c.lapDistPct]))
+
   // OnTrack (surface=3) cars rendered last so they appear on top.
   const sorted = [...cars].sort((a, b) => {
     const sa = a.carIdx === playerIdx ? 10 : (a.surface === 3 ? 1 : 0)
@@ -426,9 +475,41 @@ function drawCars(
 
   for (const car of sorted) {
     if (car.surface === -1) continue
-    const [sx, sy] = cache.ptAtP(car.lapDistPct)
+    const pct = lerpPct(prevMap.get(car.carIdx) ?? car.lapDistPct, car.lapDistPct, t)
+    const [sx, sy] = cache.ptAtP(pct)
     drawCarDot(ctx, sx, sy, car, car.carIdx === playerIdx, s.carRadius)
   }
+}
+
+// ─── Track info overlay ───────────────────────────────────────────────────────
+
+function TrackInfoOverlay({ info, fontSize }: { info: SessionInfoYaml | null; fontSize: number }) {
+  const wi = info?.WeekendInfo
+  if (!wi) return null
+
+  const name = wi.TrackDisplayName || wi.TrackName
+  const config = wi.TrackConfigName?.trim()
+
+  const details: string[] = []
+  const location = [wi.TrackCity, wi.TrackCountry].filter(Boolean).join(', ')
+  if (location) details.push(location)
+  if (wi.TrackAltitude) details.push(wi.TrackAltitude)
+  if (wi.TrackLength) details.push(wi.TrackLength)
+  if (wi.TrackNumTurns) details.push(`${wi.TrackNumTurns} turns`)
+  if (wi.TrackPitSpeedLimit) details.push(`Pit ${wi.TrackPitSpeedLimit}`)
+
+  return (
+    <div className="track-info-overlay">
+      <div className="track-info-name" style={{ fontSize }}>
+        {name}{config ? <span className="track-info-config"> — {config}</span> : null}
+      </div>
+      {details.length > 0 && (
+        <div className="track-info-details" style={{ fontSize: Math.max(8, fontSize - 2) }}>
+          {details.join(' · ')}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function drawCarDot(

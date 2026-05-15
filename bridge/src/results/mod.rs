@@ -2,6 +2,8 @@
 
 pub mod converter;
 pub mod finalizer;
+pub mod lap_buffer;
+pub mod live_capture;
 pub mod retry_queue;
 
 use anyhow::Result;
@@ -67,7 +69,7 @@ async fn fetch_worker(
             Err(e) => {
                 log::warn!("results: fetch failed for {sub_id}: {e}");
                 // Enqueue for retry.
-                let now = unix_now() + 30;
+                let now = unix_now() + 30_000;
                 if let Err(e) = db.with(move |c| {
                     crate::persistence::queries::enqueue_pending(c, sub_id, now)
                 }).await {
@@ -81,18 +83,24 @@ async fn fetch_worker(
 pub async fn fetch_and_store(sub_id: i64, db: &Db, api: &ApiClient) -> Result<()> {
     let result = api.get_subsession_result(sub_id).await?;
     let raw_json = serde_json::to_string(&result)?;
-    let (session_row, result_rows) = converter::convert(sub_id, result, raw_json)?;
+    let (session_row, segment_rows, result_rows) = converter::convert(sub_id, result, raw_json)?;
 
     db.with(move |c| {
-        crate::persistence::queries::insert_session(c, &session_row, &result_rows)
+        crate::persistence::queries::upsert_subsession(c, &session_row)?;
+        for seg in &segment_rows {
+            crate::persistence::queries::upsert_segment(c, seg)?;
+        }
+        crate::persistence::queries::insert_result_rows(c, &result_rows)
     })
     .await?;
     Ok(())
 }
 
+/// Unix timestamp in **milliseconds**. All DB time fields use ms to match
+/// JavaScript's `new Date(ms)` convention.
 pub fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
+        .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
 }

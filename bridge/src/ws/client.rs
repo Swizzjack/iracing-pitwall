@@ -32,4 +32,12 @@ pub enum ClientMessage {
         #[ts(type = "number")]
         sub_session_id: i64,
     },
+
+    /// Query lap-by-lap data for a session. If car_idx is omitted, returns all cars.
+    #[serde(rename_all = "camelCase")]
+    QueryLaps {
+        #[ts(type = "number")]
+        sub_session_id: i64,
+        car_idx: Option<i32>,
+    },
 }

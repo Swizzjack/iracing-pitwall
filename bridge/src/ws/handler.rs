@@ -278,6 +278,18 @@ async fn handle_client_msg(
                 .send(SubSessionEnd { sub_session_id })
                 .await;
         }
+
+        ClientMessage::QueryLaps { sub_session_id, car_idx } => {
+            let result = db
+                .with(move |c| crate::persistence::queries::get_laps(c, sub_session_id, car_idx))
+                .await;
+            match result {
+                Ok(laps) => {
+                    let _ = send_msg(sink, &ServerMessage::LapsList { laps }).await;
+                }
+                Err(e) => log::warn!("ws: get_laps failed: {e}"),
+            }
+        }
     }
 }
 

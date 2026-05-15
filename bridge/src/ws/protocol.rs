@@ -4,7 +4,7 @@
 
 use crate::iracing_sdk::header::HeaderStatus;
 use crate::iracing_sdk::types::SessionInfoYaml;
-use crate::persistence::queries::{FilterOptions, SessionDetail, SessionSummary};
+use crate::persistence::queries::{FilterOptions, LapRow, SessionDetail, SessionSummary};
 use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
 use serde::Serialize;
 use ts_rs::TS;
@@ -71,4 +71,8 @@ pub enum ServerMessage {
         #[ts(type = "number")]
         sub_session_id: i64,
     },
+
+    /// Response to `QueryLaps`.
+    #[serde(rename_all = "camelCase")]
+    LapsList { laps: Vec<LapRow> },
 }

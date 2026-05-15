@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import type { StandingsSnapshot } from '@shared/StandingsSnapshot'
 import type { StandingEntry } from '@shared/StandingEntry'
-import { fmtLapTime } from '../format'
+import { fmtLapTime, hexFromClassColor, readableTextOn, LIC_COLORS } from '../format'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { StandingsSettings } from './StandingsSettings'
 import type { ColId } from './StandingsSettings'
@@ -100,20 +100,6 @@ const fmtGap = (g: number | null) => {
 }
 const fmtSec = (s: number) => s.toFixed(1) + 's'
 
-function hexFromInt(n: number | bigint | null | undefined): string | null {
-  if (n == null) return null
-  const v = typeof n === 'bigint' ? Number(n) : n
-  const c = Math.max(0, Math.min(0xffffff, v))
-  return `#${c.toString(16).padStart(6, '0')}`
-}
-
-function readableTextOn(bg: string): string {
-  const r = parseInt(bg.slice(1, 3), 16)
-  const g = parseInt(bg.slice(3, 5), 16)
-  const b = parseInt(bg.slice(5, 7), 16)
-  const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return luma > 0.55 ? '#000' : '#fff'
-}
 
 const TIRE_COMPOUNDS: Record<number, { label: string; bg: string }> = {
   0: { label: 'Dry',  bg: '#52525b' },
@@ -134,7 +120,7 @@ function ClassBadge({ classPos, classColor, finished }: {
   classColor: bigint | null
   finished: boolean
 }) {
-  const bg = hexFromInt(classColor) ?? '#444'
+  const bg = hexFromClassColor(classColor) ?? '#444'
   const fg = readableTextOn(bg)
   return (
     <span
@@ -146,15 +132,6 @@ function ClassBadge({ classPos, classColor, finished }: {
   )
 }
 
-const LIC_COLORS: Record<string, { bg: string; fg: string }> = {
-  R: { bg: 'rgba(60, 0, 0, 0.82)',    fg: '#ff7575' },
-  D: { bg: 'rgba(60, 22, 0, 0.82)',   fg: '#ffaa55' },
-  C: { bg: 'rgba(55, 44, 0, 0.82)',   fg: '#ffe060' },
-  B: { bg: 'rgba(0, 45, 18, 0.82)',   fg: '#55dd8a' },
-  A: { bg: 'rgba(0, 30, 60, 0.82)',   fg: '#66b2ff' },
-  P: { bg: 'rgba(38, 0, 62, 0.82)',   fg: '#cc7fff' },
-  W: { bg: 'rgba(40, 34, 0, 0.82)',   fg: '#ffd966' },
-}
 
 function RatingBadge({ irating, safetyRating }: {
   irating: number; safetyRating: string
@@ -257,7 +234,7 @@ export function Standings({ snap, playerCarIdx }: Props) {
     const byClass = new Map<number, { name: string; color: string | null; ratings: number[] }>()
     for (const e of snap.entries) {
       if (!byClass.has(e.carClassId))
-        byClass.set(e.carClassId, { name: e.carClassShortName, color: hexFromInt(e.carClassColor), ratings: [] })
+        byClass.set(e.carClassId, { name: e.carClassShortName, color: hexFromClassColor(e.carClassColor), ratings: [] })
       if (e.irating > 0) byClass.get(e.carClassId)!.ratings.push(e.irating)
     }
     const playerClassId = playerCarIdx != null
