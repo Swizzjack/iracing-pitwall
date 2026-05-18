@@ -74,7 +74,7 @@ pub struct TelemetrySnapshot {
     pub oil_press: f32,
     pub voltage: f32,
     pub engine_warnings: u32,
-    pub brake_bias: f32,
+    pub brake_bias: Option<f32>,
 
     // G-Forces
     pub lat_accel: f32,
@@ -210,7 +210,7 @@ impl TelemetrySnapshot {
             oil_press: client.get_f32("OilPress")?,
             voltage: client.get_f32("Voltage")?,
             engine_warnings: client.get_bitfield("EngineWarnings")?,
-            brake_bias: client.get_f32("dcBrakeBias")?,
+            brake_bias: client.get_f32("dcBrakeBias").ok(),
 
             // G-Forces
             lat_accel: client.get_f32("LatAccel")?,

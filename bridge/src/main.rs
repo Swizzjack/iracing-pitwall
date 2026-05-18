@@ -7,23 +7,17 @@
 
 mod config;
 mod error;
-mod iracing_api;
 mod iracing_sdk;
-mod paths;
-mod persistence;
-mod results;
 mod telemetry;
 mod ws;
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
 #[cfg(windows)]
 use anyhow::Context;
-use tokio::sync::{broadcast, mpsc, oneshot, watch};
+use tokio::sync::{oneshot, watch};
 
 /// Prüft per TCP-Connect ob bereits eine Bridge-Instanz auf diesem Port läuft.
 /// Schneller als port-binding und funktioniert ohne Windows-spezifische APIs.
@@ -68,45 +62,6 @@ async fn main() -> Result<()> {
         log::info!("LAN access: {url}");
     }
 
-    // ── Results subsystem ───────────────────────────────────────────────
-    let data_dir = paths::data_dir();
-    let db = persistence::Db::open(&data_dir.join("results.sqlite"))
-        .map_err(|e| { log::warn!("db open failed: {e}"); e })?;
-    let api = iracing_api::ApiClient::new(data_dir.join("auth.json"))
-        .map_err(|e| { log::warn!("api client init failed: {e}"); e })?;
-    let (finish_tx, finish_rx) = mpsc::channel::<results::SubSessionEnd>(32);
-    let (results_push_tx, _) = broadcast::channel::<ws::ServerMessage>(64);
-    // Live capture: SDK loop builds snapshot data synchronously; async task writes to DB.
-    let (live_capture_tx, live_capture_rx) =
-        mpsc::channel::<results::live_capture::LiveCapture>(8);
-    // Lap buffer: receives per-car lap completions and batch-writes to live_session_laps.
-    let (lap_buffer_tx, lap_buffer_rx) =
-        mpsc::channel::<results::lap_buffer::LapBufferMsg>(256);
-
-    {
-        let db2 = db.clone();
-        let api2 = api.clone();
-        let push2 = results_push_tx.clone();
-        tokio::spawn(async move {
-            if let Err(e) = results::run(db2, api2, finish_rx, push2).await {
-                log::error!("results service: {e}");
-            }
-        });
-    }
-    {
-        let db_cap = db.clone();
-        let push_cap = results_push_tx.clone();
-        tokio::spawn(async move {
-            results::live_capture::run(db_cap, push_cap, live_capture_rx).await;
-        });
-    }
-    {
-        let db_lap = db.clone();
-        tokio::spawn(async move {
-            results::lap_buffer::run(db_lap, lap_buffer_rx).await;
-        });
-    }
-
     let (clients, count_rx) = ws::ClientTracker::new();
     let state = ws::BridgeState {
         telemetry: tel_rx,
@@ -115,32 +70,19 @@ async fn main() -> Result<()> {
         track_map: tm_rx,
         clients,
         lan_url,
-        db,
-        api,
-        finish_tx,
-        results_push: results_push_tx,
     };
 
-    // Shared state for Ctrl-C final capture: SDK loop writes latest (yaml, snap) here.
-    let last_state: Arc<Mutex<Option<(iracing_sdk::types::SessionInfoYaml, telemetry::StandingsSnapshot)>>> =
-        Arc::new(Mutex::new(None));
-    let live_capture_tx_ctrlc = live_capture_tx.clone();
-
     #[cfg(windows)]
-    {
-        let finish_tx_sdk = state.finish_tx.clone();
-        let last_state_sdk = last_state.clone();
-        tokio::task::spawn_blocking(move || {
-            if let Err(e) = sdk_loop(tel_tx, std_tx, si_tx, tm_tx, finish_tx_sdk, live_capture_tx, lap_buffer_tx, last_state_sdk) {
-                log::error!("sdk_loop terminated: {e}");
-            }
-        });
-    }
+    tokio::task::spawn_blocking(move || {
+        if let Err(e) = sdk_loop(tel_tx, std_tx, si_tx, tm_tx) {
+            log::error!("sdk_loop terminated: {e}");
+        }
+    });
 
     #[cfg(not(windows))]
     {
         log::warn!("Non-Windows build: iRacing SDK reader disabled.");
-        drop((tel_tx, std_tx, si_tx, tm_tx, live_capture_tx, lap_buffer_tx, last_state.clone()));
+        drop((tel_tx, std_tx, si_tx, tm_tx));
     }
 
     let (addr, listener) = match ws::bind(cfg.ws_port).await {
@@ -154,7 +96,7 @@ async fn main() -> Result<()> {
             );
             let url = format!("http://127.0.0.1:{}/", cfg.ws_port);
             if let Err(e) = webbrowser::open(&url) {
-                log::warn!("failed to open browser: {e}");
+                log::warn!("failed to open browser at {url}: {e}");
             }
             return Ok(());
         }
@@ -179,12 +121,9 @@ async fn main() -> Result<()> {
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
-            log::info!("ctrl-c received, capturing final state");
-            do_final_capture(&last_state, &live_capture_tx_ctrlc);
+            log::info!("ctrl-c received, shutting down");
         }
         r = ws_task => {
-            log::info!("ws task ended, capturing final state");
-            do_final_capture(&last_state, &live_capture_tx_ctrlc);
             match r {
                 Ok(Err(e)) => log::error!("ws server error: {e}"),
                 Err(e) => log::error!("ws task panicked: {e}"),
@@ -197,24 +136,6 @@ async fn main() -> Result<()> {
     std::process::exit(0);
 }
 
-/// Shared final-capture logic used by both Ctrl-C and WS-lifecycle-shutdown paths.
-fn do_final_capture(
-    last_state: &Arc<Mutex<Option<(iracing_sdk::types::SessionInfoYaml, telemetry::StandingsSnapshot)>>>,
-    tx: &mpsc::Sender<results::live_capture::LiveCapture>,
-) {
-    if let Ok(guard) = last_state.lock() {
-        if let Some((ref yaml, ref snap)) = *guard {
-            match results::live_capture::capture_subsession(yaml, snap, true) {
-                Ok(capture) => {
-                    let _ = tx.try_send(capture);
-                    std::thread::sleep(Duration::from_millis(600));
-                }
-                Err(e) => log::warn!("final capture failed: {e}"),
-            }
-        }
-    }
-}
-
 /// Blocking SDK loop — runs in spawn_blocking, owns the IRacingClient for its lifetime.
 /// Retries indefinitely until iRacing is running, reconnects after disconnect.
 #[cfg(windows)]
@@ -223,15 +144,11 @@ fn sdk_loop(
     std_tx: watch::Sender<Option<telemetry::StandingsSnapshot>>,
     si_tx: watch::Sender<Option<iracing_sdk::types::SessionInfoYaml>>,
     tm_tx: watch::Sender<Option<telemetry::TrackMapSnapshot>>,
-    finish_tx: mpsc::Sender<results::SubSessionEnd>,
-    live_capture_tx: mpsc::Sender<results::live_capture::LiveCapture>,
-    lap_buffer_tx: mpsc::Sender<results::lap_buffer::LapBufferMsg>,
-    last_state: Arc<Mutex<Option<(iracing_sdk::types::SessionInfoYaml, telemetry::StandingsSnapshot)>>>,
 ) -> Result<()> {
     const RETRY_DELAY: Duration = Duration::from_secs(3);
 
     loop {
-        match connect_and_run(&tel_tx, &std_tx, &si_tx, &tm_tx, &finish_tx, &live_capture_tx, &lap_buffer_tx, &last_state) {
+        match connect_and_run(&tel_tx, &std_tx, &si_tx, &tm_tx) {
             Ok(()) => return Ok(()),
             Err(e) => {
                 if matches!(
@@ -254,10 +171,6 @@ fn connect_and_run(
     std_tx: &watch::Sender<Option<telemetry::StandingsSnapshot>>,
     si_tx: &watch::Sender<Option<iracing_sdk::types::SessionInfoYaml>>,
     tm_tx: &watch::Sender<Option<telemetry::TrackMapSnapshot>>,
-    finish_tx: &mpsc::Sender<results::SubSessionEnd>,
-    live_capture_tx: &mpsc::Sender<results::live_capture::LiveCapture>,
-    lap_buffer_tx: &mpsc::Sender<results::lap_buffer::LapBufferMsg>,
-    last_state: &Arc<Mutex<Option<(iracing_sdk::types::SessionInfoYaml, telemetry::StandingsSnapshot)>>>,
 ) -> Result<()> {
     use iracing_sdk::yaml::decode_and_parse;
     use iracing_sdk::synthetic_id::SyntheticSubSessionId;
@@ -273,15 +186,9 @@ fn connect_and_run(
     let mut sector_tracker = telemetry::sector_tracker::SectorTracker::default();
     let mut finish_tracker = telemetry::finish_tracker::FinishTracker::default();
     let mut session_transition = telemetry::session_transition::SessionTransitionDetector::default();
-    let mut last_snap: Option<telemetry::StandingsSnapshot> = None;
     let mut recorder = telemetry::track_recorder::TrackRecorder::new(cache_dir);
     let mut synthetic = SyntheticSubSessionId::default();
     let mut frame: u64 = 0;
-    // For SubSessionID-change detection (user leaves server, enters a different session).
-    let mut last_sub_id: Option<i64> = None;
-    // For periodic live-persist: save current state every LIVE_PERSIST_INTERVAL seconds.
-    const LIVE_PERSIST_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
-    let mut last_live_persist_at = std::time::Instant::now();
 
     loop {
         match client.wait_for_frame() {
@@ -289,54 +196,9 @@ fn connect_and_run(
             Err(e) => {
                 let is_idle = e.to_string().contains("sim idle");
                 if is_idle {
-                    // Sim is running but player returned to main menu or loading screen.
-                    // Do a final capture if we have state, then keep looping.
-                    if let (Some(ref snap), Some(ref yaml)) = (&last_snap, &yaml_cache) {
-                        let sub_id = synthetic.resolve(
-                            yaml.weekend_info.sub_session_id,
-                            &yaml.weekend_info,
-                            &yaml.session_info.sessions,
-                        );
-                        if sub_id != 0 {
-                            log::info!(
-                                "sdk_loop: sim idle — capturing subsession={sub_id} session_num={}",
-                                snap.session_num
-                            );
-                            let _ = lap_buffer_tx.blocking_send(
-                                results::lap_buffer::LapBufferMsg::Flush { sub_session_id: sub_id },
-                            );
-                            match results::live_capture::capture_subsession(yaml, snap, true) {
-                                Ok(capture) => { let _ = live_capture_tx.blocking_send(capture); }
-                                Err(ce) => log::warn!("idle capture failed: {ce}"),
-                            }
-                        }
-                        // Reset sub_id tracking so a subsequent reconnect is treated as fresh.
-                        last_sub_id = None;
-                        synthetic.reset();
-                        session_transition = telemetry::session_transition::SessionTransitionDetector::default();
-                    }
+                    synthetic.reset();
+                    session_transition = telemetry::session_transition::SessionTransitionDetector::default();
                     continue;
-                }
-                // Real disconnect (iRacing closed / connected-bit cleared).
-                if let (Some(ref snap), Some(ref yaml)) = (&last_snap, &yaml_cache) {
-                    let sub_id = synthetic.resolve(
-                        yaml.weekend_info.sub_session_id,
-                        &yaml.weekend_info,
-                        &yaml.session_info.sessions,
-                    );
-                    if sub_id != 0 {
-                        log::info!(
-                            "sdk_loop: disconnect — capturing subsession={sub_id} session_num={}",
-                            snap.session_num
-                        );
-                        let _ = lap_buffer_tx.blocking_send(
-                            results::lap_buffer::LapBufferMsg::Flush { sub_session_id: sub_id },
-                        );
-                        match results::live_capture::capture_subsession(yaml, snap, true) {
-                            Ok(capture) => { let _ = live_capture_tx.blocking_send(capture); }
-                            Err(ce) => log::warn!("disconnect capture failed: {ce}"),
-                        }
-                    }
                 }
                 synthetic.reset();
                 return Err(e.into());
@@ -373,81 +235,15 @@ fn connect_and_run(
                 pit_tracker.update(&client, sub_id).context("pit_tracker update")?;
                 finish_tracker.observe(&client, sub_id, session_num)
                     .context("finish_tracker observe")?;
-                // Build snapshot before sending so we can use it for live capture.
                 let snap = telemetry::StandingsSnapshot::build(
                     &client, y, &pit_tracker, &sector_tracker, &mut finish_tracker,
                 )
                 .context("standings build")?;
-                // Forward any completed laps to the buffer (all sessions, not just race).
-                let completions = sector_tracker.drain_completed_laps();
-                if !completions.is_empty() {
-                    let _ = lap_buffer_tx.blocking_send(results::lap_buffer::LapBufferMsg::Batch {
-                        sub_session_id: sub_id,
-                        simsession_num: session_num,
-                        completions,
-                    });
-                }
-                // Detect SubSessionID change (user left server, entered a new session).
-                if let Some(prev_sub) = last_sub_id {
-                    if prev_sub != sub_id {
-                        log::info!("sdk_loop: sub_session_id changed {prev_sub}→{sub_id} — capturing previous");
-                        let _ = lap_buffer_tx.blocking_send(
-                            results::lap_buffer::LapBufferMsg::Flush { sub_session_id: prev_sub },
-                        );
-                        if let Some(ref prev_snap) = last_snap {
-                            match results::live_capture::capture_subsession(y, prev_snap, true) {
-                                Ok(capture) => { let _ = live_capture_tx.blocking_send(capture); }
-                                Err(e) => log::warn!("subsession-change capture failed: {e}"),
-                            }
-                        }
-                        session_transition = telemetry::session_transition::SessionTransitionDetector::default();
-                    }
-                }
-                last_sub_id = Some(sub_id);
-                // Detect Practice/Qualify → next-session transition and capture the finished segment.
-                if let Some(prev_num) = session_transition.observe(session_num) {
-                    log::info!("sdk_loop: session transition {prev_num}→{session_num} — capturing previous segment");
-                    let _ = lap_buffer_tx.blocking_send(results::lap_buffer::LapBufferMsg::Flush {
-                        sub_session_id: sub_id,
-                    });
-                    // Use last tick's snapshot (built under prev_num) + current YAML (which
-                    // now has ResultsPositions for the finished session where available).
-                    if let Some(ref prev_snap) = last_snap {
-                        match results::live_capture::capture_subsession(y, prev_snap, true) {
-                            Ok(capture) => { let _ = live_capture_tx.blocking_send(capture); }
-                            Err(e) => log::warn!("live_capture (transition): {e}"),
-                        }
-                    }
-                }
-                // Trigger results on checkered-flag rising edge.
-                if let Some(fired_sub_id) = finish_tracker.checkered_edge_fired() {
-                    log::info!("sdk_loop: checkered edge — queuing results fetch for subsession {fired_sub_id}");
-                    let _ = lap_buffer_tx.blocking_send(results::lap_buffer::LapBufferMsg::Flush {
-                        sub_session_id: fired_sub_id,
-                    });
-                    match results::live_capture::capture_subsession(y, &snap, true) {
-                        Ok(capture) => { let _ = live_capture_tx.blocking_send(capture); }
-                        Err(e) => log::warn!("live_capture build failed: {e}"),
-                    }
-                    // API fetch path (dormant until OAuth re-opens).
-                    let _ = finish_tx.blocking_send(results::SubSessionEnd { sub_session_id: fired_sub_id });
-                }
-                // Periodic live-persist: write current state every LIVE_PERSIST_INTERVAL seconds.
-                let now_instant = std::time::Instant::now();
-                if sub_id != 0 && now_instant.duration_since(last_live_persist_at) >= LIVE_PERSIST_INTERVAL {
-                    last_live_persist_at = now_instant;
-                    match results::live_capture::capture_subsession(y, &snap, false) {
-                        Ok(capture) => { let _ = live_capture_tx.try_send(capture); }
-                        Err(e) => log::warn!("live-persist capture failed: {e}"),
-                    }
-                }
-                // Always keep last_state current for Ctrl-C / WS-shutdown final capture.
-                if sub_id != 0 {
-                    if let Ok(mut guard) = last_state.lock() {
-                        *guard = Some((y.clone(), snap.clone()));
-                    }
-                }
-                last_snap = Some(snap.clone());
+                // Drain completed laps (sector_tracker still tracks these for SectorTracker state).
+                let _ = sector_tracker.drain_completed_laps();
+                // Detect session transitions for synthetic ID bookkeeping.
+                session_transition.observe(session_num);
+                finish_tracker.checkered_edge_fired();
                 let _ = std_tx.send(Some(snap));
             }
         }
@@ -477,11 +273,11 @@ fn detect_lan_ip() -> Option<std::net::IpAddr> {
     socket.local_addr().ok().map(|a| a.ip())
 }
 
-fn log_path() -> PathBuf {
+fn log_path() -> std::path::PathBuf {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("bridge.log")))
-        .unwrap_or_else(|| PathBuf::from("bridge.log"))
+        .unwrap_or_else(|| std::path::PathBuf::from("bridge.log"))
 }
 
 fn init_logging() {

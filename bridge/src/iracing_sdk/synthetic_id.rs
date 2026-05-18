@@ -6,9 +6,16 @@
 //! changes when the "run signature" (track + session-type layout) changes.
 
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::iracing_sdk::types::{SessionEntry, WeekendInfo};
-use crate::results::unix_now;
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
 
 /// Global monotonic counter — ensures each new offline run gets a unique ID
 /// even if two runs start within the same millisecond (e.g. in tests).
@@ -89,6 +96,11 @@ mod tests {
             session_id: 0,
             sub_session_id: 0,
             track_weather_type: None,
+            track_city: None,
+            track_country: None,
+            track_altitude: None,
+            track_num_turns: None,
+            track_pit_speed_limit: None,
         }
     }
 

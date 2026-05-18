@@ -248,7 +248,7 @@ export function ElectronicsBento({ snap, fields, fontScale }: Props) {
             {has('abs') && snap.dcAbs != null && (
               <PillStepper value={snap.dcAbs} label="ABS" color="#3b82f6" />
             )}
-            {has('bb') && (
+            {has('bb') && snap.brakeBias != null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ color: '#666', fontSize: 'calc(var(--widget-font-scale, 1) * 11px)' }}>Brake Bias</span>
                 <span style={{ color: '#ccc', fontFamily: 'var(--font-mono)', fontSize: 'calc(var(--widget-font-scale, 1) * 12px)' }}>

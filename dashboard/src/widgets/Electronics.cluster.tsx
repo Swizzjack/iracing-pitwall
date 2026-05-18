@@ -130,7 +130,7 @@ function BottomStrip({ snap, fields }: { snap: TelemetrySnapshot; fields: Resolv
     const level = snap.dcAbs > 1.5 ? Math.round(snap.dcAbs) : Math.round(snap.dcAbs * 12)
     items.push({ key: 'abs', label: `ABS ${level}`, active: level > 0, color: '#3b82f6' })
   }
-  if (has('bb')) {
+  if (has('bb') && snap.brakeBias != null) {
     const bbVal = snap.brakeBias > 1 ? snap.brakeBias.toFixed(1) : (snap.brakeBias * 100).toFixed(1)
     items.push({ key: 'bb', label: `BB ${bbVal}%`, active: false, color: '#ccc' })
   }

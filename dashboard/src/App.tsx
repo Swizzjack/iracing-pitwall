@@ -10,7 +10,6 @@ import { Dashboard } from './layout/Dashboard'
 import { EditToolbar } from './layout/EditToolbar'
 import { loadLayout, saveLayout, resetLayout, type StoredLayout } from './layout/storage'
 import { SettingsDrawer } from './components/SettingsDrawer'
-import { Results } from './screens/Results'
 import './App.css'
 
 const UI_SCALE_KEY = 'iracing-ui-scale-v1'
@@ -20,8 +19,6 @@ function loadUiScale(): number {
   const n = raw ? parseFloat(raw) : NaN
   return Number.isFinite(n) && n >= 0.8 && n <= 2.0 ? n : 1.0
 }
-
-type View = 'dashboard' | 'results'
 
 const WS_URL = import.meta.env.DEV
   ? 'ws://127.0.0.1:8765/ws'
@@ -38,7 +35,6 @@ function App() {
   const [isFs, setIsFs] = useState(false)
   const [editing, setEditing] = useState(false)
   const [stored, setStored] = useState<StoredLayout>(loadLayout)
-  const [view, setView] = useState<View>('dashboard')
   const [uiScale, setUiScale] = useState<number>(loadUiScale)
   const [showGlobalSettings, setShowGlobalSettings] = useState(false)
 
@@ -153,22 +149,13 @@ function App() {
               {lanUrl.replace('http://', '').replace(/\/$/, '')}
             </a>
           )}
-          {view === 'dashboard' && (
-            <EditToolbar
-              editing={editing}
-              visible={stored.visible}
-              onToggleEdit={() => setEditing((e) => !e)}
-              onAdd={handleAdd}
-              onReset={handleReset}
-            />
-          )}
-          <button
-            className={`header-btn${view === 'results' ? ' header-btn-active' : ''}`}
-            onClick={() => setView((v) => v === 'results' ? 'dashboard' : 'results')}
-            title="Race Results"
-          >
-            Results
-          </button>
+          <EditToolbar
+            editing={editing}
+            visible={stored.visible}
+            onToggleEdit={() => setEditing((e) => !e)}
+            onAdd={handleAdd}
+            onReset={handleReset}
+          />
           <button className="fs-btn" onClick={toggleFs} title={isFs ? 'Exit fullscreen' : 'Enter fullscreen'}>
             {isFs ? '⤡' : '⤢'}
           </button>
@@ -215,18 +202,14 @@ function App() {
         </div>
       </SettingsDrawer>
       <main>
-        {view === 'results' && clientRef.current ? (
-          <Results client={clientRef.current} active={view === 'results'} />
-        ) : (
-          <Dashboard
-            data={{ tel, standings, info, trackMap }}
-            visible={stored.visible}
-            layout={stored.layout}
-            editing={editing}
-            onLayoutChange={handleLayoutChange}
-            onRemove={handleRemove}
-          />
-        )}
+        <Dashboard
+          data={{ tel, standings, info, trackMap }}
+          visible={stored.visible}
+          layout={stored.layout}
+          editing={editing}
+          onLayoutChange={handleLayoutChange}
+          onRemove={handleRemove}
+        />
       </main>
     </div>
   )

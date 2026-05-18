@@ -98,6 +98,7 @@ function resolveField(id: ElectronicsFieldId, snap: TelemetrySnapshot): Resolved
       if (snap.dcAbs == null) return null
       return r(String(snap.dcAbs > 1.5 ? Math.round(snap.dcAbs) : Math.round(snap.dcAbs * 12)), '#3b82f6')
     case 'bb': {
+      if (snap.brakeBias == null) return null
       const bbPct = snap.brakeBias > 1 ? snap.brakeBias : snap.brakeBias * 100
       return r(`${bbPct.toFixed(1)}%`)
     }

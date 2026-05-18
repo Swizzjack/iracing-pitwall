@@ -129,6 +129,7 @@ impl SectorTracker {
 
         let session_time = client.get_f64("SessionTime")?;
         let lap_dist_pcts = client.get_f32_array("CarIdxLapDistPct")?;
+        let sdk_last_lap_times = client.get_f32_array("CarIdxLastLapTime").unwrap_or_default();
         let on_pit = client.get_bool_array("CarIdxOnPitRoad")?;
         let surfaces = client.get_i32_array("CarIdxTrackSurface").ok();
         let air_temp = client.get_f32("AirTemp").ok();
@@ -195,7 +196,14 @@ impl SectorTracker {
 
                 // Emit a LapCompletion for every car that had a lap started.
                 if state.current_lap_num > 0 {
-                    let lap_time = if state.lap_started_at > 0.0 {
+                    // Prefer iRacing's authoritative CarIdxLastLapTime over our
+                    // self-measured interpolation (which has ~60-Hz noise of ±4-7 ms).
+                    // Fall back to interpolated time only when iRacing reports no value
+                    // (e.g. off-track invalidation → SDK returns -1).
+                    let sdk_last = sdk_last_lap_times.get(idx).copied().unwrap_or(-1.0);
+                    let lap_time = if sdk_last > 0.0 {
+                        Some(sdk_last)
+                    } else if state.lap_started_at > 0.0 {
                         let t = (t_sf - state.lap_started_at) as f32;
                         if t > 0.0 { Some(t) } else { None }
                     } else {
@@ -362,6 +370,8 @@ mod tests {
                         valid,
                         in_lap: state.pit_in_during_lap,
                         session_time: t_sf,
+                        air_temp: None,
+                        track_temp: None,
                     });
                 }
                 state.reset_lap(t_sf, n + 1);

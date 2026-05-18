@@ -1,6 +1,6 @@
 [package]
 name = "bridge"
-version = "0.1.46"
+version = "0.1.53"
 edition = "2021"
 rust-version = "1.80"
 
@@ -23,14 +23,6 @@ log = "0.4"
 simplelog = "0.12"
 ts-rs = { version = "10", features = ["serde-compat"] }
 webbrowser = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "gzip", "cookies"] }
-directories = "5"
-chrono = { version = "0.4", features = ["serde"] }
-sha2 = "0.10"
-base64 = "0.21"
-rand = "0.8"
-urlencoding = "2"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.59"
