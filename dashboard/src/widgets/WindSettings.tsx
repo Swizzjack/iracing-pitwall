@@ -4,19 +4,15 @@ export const SPEED_UNIT_DEFAULT: SpeedUnit = 'kmh'
 
 interface Props {
   speedUnit: SpeedUnit
-  showCompass: boolean
-  showStreamlines: boolean
   fontScale: number
   onSpeedUnit: (u: SpeedUnit) => void
-  onShowCompass: (v: boolean) => void
-  onShowStreamlines: (v: boolean) => void
   onFontScale: (v: number) => void
   onResetAll: () => void
 }
 
 export function WindSettings({
-  speedUnit, showCompass, showStreamlines, fontScale,
-  onSpeedUnit, onShowCompass, onShowStreamlines, onFontScale, onResetAll,
+  speedUnit, fontScale,
+  onSpeedUnit, onFontScale, onResetAll,
 }: Props) {
   return (
     <>
@@ -33,24 +29,6 @@ export function WindSettings({
             </button>
           ))}
         </div>
-      </div>
-
-      <div className="settings-section">
-        <div className="settings-section-title">Display</div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#aaa', cursor: 'pointer' }}>
-          <span className="toggle">
-            <input type="checkbox" checked={showCompass} onChange={e => onShowCompass(e.target.checked)} />
-            <span className="toggle-track" />
-          </span>
-          Absolute compass ring
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#aaa', cursor: 'pointer', marginTop: 8 }}>
-          <span className="toggle">
-            <input type="checkbox" checked={showStreamlines} onChange={e => onShowStreamlines(e.target.checked)} />
-            <span className="toggle-track" />
-          </span>
-          Streamlines
-        </label>
       </div>
 
       <div className="settings-drawer-footer">
