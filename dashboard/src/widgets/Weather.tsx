@@ -6,6 +6,7 @@ import {
 import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
 import { SettingsDrawer } from '../components/SettingsDrawer'
+import { WindCompass, windCardinal } from '../components/WindCompass'
 import {
   WeatherSettings, DEFAULT_FIELD_ORDER,
   type WeatherFieldId, type TempUnit, type SpeedUnit,
@@ -22,15 +23,6 @@ function fmtWind(ms: number, u: SpeedUnit) {
   return u === 'mph'
     ? `${(ms * 2.23694).toFixed(1)} mph`
     : `${(ms * 3.6).toFixed(1)} km/h`
-}
-
-function windDeg(rad: number) {
-  return ((rad % (2 * Math.PI)) * 180 / Math.PI + 360) % 360
-}
-
-function windCardinal(rad: number) {
-  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
-  return dirs[Math.round(windDeg(rad) / 45) % 8]
 }
 
 function fmtTime(sec: number) {
@@ -194,30 +186,14 @@ function WindRow({ snap, speedUnit }: { snap: TelemetrySnapshot; speedUnit: Spee
   const dir = snap.windDir
   if (vel == null && dir == null) return null
 
-  const deg = dir != null ? windDeg(dir) : null
   const cardinal = dir != null ? windCardinal(dir) : null
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid #1a1a1a' }}>
-      {deg != null ? (
-        <svg width="40" height="40" viewBox="-20 -20 40 40" style={{ flexShrink: 0, overflow: 'visible' }}>
-          <circle r="18" fill="none" stroke="#1f1f1f" strokeWidth="1.5" />
-          {(['N', 'E', 'S', 'W'] as const).map((d, i) => {
-            const positions = [[0, -13], [13, 0], [0, 13], [-13, 0]] as const
-            return (
-              <text key={d} x={positions[i][0]} y={positions[i][1]}
-                fill="#444" fontSize="5" textAnchor="middle" dominantBaseline="middle">
-                {d}
-              </text>
-            )
-          })}
-          <g transform={`rotate(${deg})`}>
-            <polygon points="0,-12 2.5,2 0,-1 -2.5,2" fill="#facc15" />
-          </g>
-        </svg>
-      ) : (
-        <Wind size={28} color="#555" style={{ flexShrink: 0 }} />
-      )}
+      {dir != null
+        ? <WindCompass windRad={dir} size={40} />
+        : <Wind size={28} color="#555" style={{ flexShrink: 0 }} />
+      }
       <div>
         <div style={{ color: '#ccc', fontFamily: 'var(--font-heading)', fontSize: 'calc(15px * var(--widget-font-scale, 1))' }}>
           {vel != null ? fmtWind(vel, speedUnit) : '–'}

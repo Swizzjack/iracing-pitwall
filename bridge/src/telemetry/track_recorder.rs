@@ -20,6 +20,9 @@ pub struct TrackShape {
     pub points: Vec<TrackPoint>,
     /// World-space bounds: (xmin, ymin, xmax, ymax).
     pub bounds: [f32; 4],
+    /// Elevation bounds: (zmin, zmax). Zero for tracks recorded before Z was added.
+    #[serde(default)]
+    pub z_bounds: [f32; 2],
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -30,6 +33,8 @@ pub struct TrackPoint {
     pub p: f32,
     pub x: f32,
     pub y: f32,
+    #[serde(default)]
+    pub z: f32,
 }
 
 // ─── Internal recording state ────────────────────────────────────────────────
@@ -37,9 +42,10 @@ pub struct TrackPoint {
 const RESAMPLE_N: usize = 512;
 
 struct RecordingState {
-    samples: Vec<(f32, f64, f64)>, // (p, x, y)
+    samples: Vec<(f32, f64, f64, f64)>, // (p, x, y, z)
     integ_x: f64,
     integ_y: f64,
+    integ_z: f64,
     last_p: f32,
     last_time: f64,
     initialized: bool,
@@ -51,13 +57,14 @@ impl RecordingState {
             samples: Vec::with_capacity(4096),
             integ_x: 0.0,
             integ_y: 0.0,
+            integ_z: 0.0,
             last_p: -1.0,
             last_time: -1.0,
             initialized: false,
         }
     }
 
-    fn push(&mut self, vx: f32, vy: f32, yaw: f32, session_time: f64, lap_dist_pct: f32) {
+    fn push(&mut self, vx: f32, vy: f32, vz: f32, yaw: f32, session_time: f64, lap_dist_pct: f32) {
         if !self.initialized {
             self.last_time = session_time;
             self.last_p = lap_dist_pct;
@@ -78,8 +85,10 @@ impl RecordingState {
         let wvy = vx as f64 * s + vy as f64 * c;
         self.integ_x += wvx * dt;
         self.integ_y += wvy * dt;
+        // Z needs no yaw rotation; closed-loop drift is removed by the linear detrend in finalize().
+        self.integ_z += vz as f64 * dt;
         self.samples
-            .push((lap_dist_pct, self.integ_x, self.integ_y));
+            .push((lap_dist_pct, self.integ_x, self.integ_y, self.integ_z));
         self.last_p = lap_dist_pct;
     }
 
@@ -97,8 +106,8 @@ impl RecordingState {
         self.samples.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
         // Linear detrend: remove drift between first and last sample so loop closes.
-        let (p0, x0, y0) = self.samples[0];
-        let (p1, x1, y1) = *self.samples.last().unwrap();
+        let (p0, x0, y0, z0) = self.samples[0];
+        let (p1, x1, y1, z1) = *self.samples.last().unwrap();
         let dp = (p1 - p0) as f64;
         let detrend = dp > 0.01;
 
@@ -108,30 +117,35 @@ impl RecordingState {
         let mut points = Vec::with_capacity(RESAMPLE_N);
         for i in 0..RESAMPLE_N {
             let target_p = i as f32 / RESAMPLE_N as f32;
-            let (sx, sy) = interpolate(&self.samples, target_p);
-            let (x, y) = if detrend {
+            let (sx, sy, sz) = interpolate(&self.samples, target_p);
+            let (x, y, z) = if detrend {
                 let t = ((target_p - p0) as f64 / dp).clamp(0.0, 1.0);
-                (sx - (x1 - x0) * t, sy - (y1 - y0) * t)
+                (sx - (x1 - x0) * t, sy - (y1 - y0) * t, sz - (z1 - z0) * t)
             } else {
-                (sx, sy)
+                (sx, sy, sz)
             };
             points.push(TrackPoint {
                 p: target_p,
                 x: x as f32,
                 y: y as f32,
+                z: z as f32,
             });
         }
 
         // Compute bounds.
         let mut xmin = f32::MAX;
         let mut ymin = f32::MAX;
+        let mut zmin = f32::MAX;
         let mut xmax = f32::MIN;
         let mut ymax = f32::MIN;
+        let mut zmax = f32::MIN;
         for pt in &points {
             if pt.x < xmin { xmin = pt.x; }
             if pt.x > xmax { xmax = pt.x; }
             if pt.y < ymin { ymin = pt.y; }
             if pt.y > ymax { ymax = pt.y; }
+            if pt.z < zmin { zmin = pt.z; }
+            if pt.z > zmax { zmax = pt.z; }
         }
 
         Some(TrackShape {
@@ -140,31 +154,32 @@ impl RecordingState {
             track_config_name: track_config_name.to_string(),
             points,
             bounds: [xmin, ymin, xmax, ymax],
+            z_bounds: [zmin, zmax],
         })
     }
 }
 
-fn interpolate(samples: &[(f32, f64, f64)], target_p: f32) -> (f64, f64) {
+fn interpolate(samples: &[(f32, f64, f64, f64)], target_p: f32) -> (f64, f64, f64) {
     if samples.is_empty() {
-        return (0.0, 0.0);
+        return (0.0, 0.0, 0.0);
     }
     // Binary search for the first sample with p >= target_p.
     let idx = samples.partition_point(|s| s.0 < target_p);
     if idx == 0 {
-        return (samples[0].1, samples[0].2);
+        return (samples[0].1, samples[0].2, samples[0].3);
     }
     if idx >= samples.len() {
         let last = samples.last().unwrap();
-        return (last.1, last.2);
+        return (last.1, last.2, last.3);
     }
-    let (p0, x0, y0) = samples[idx - 1];
-    let (p1, x1, y1) = samples[idx];
+    let (p0, x0, y0, z0) = samples[idx - 1];
+    let (p1, x1, y1, z1) = samples[idx];
     let dp = (p1 - p0) as f64;
     if dp < 1e-10 {
-        return (x0, y0);
+        return (x0, y0, z0);
     }
     let t = ((target_p - p0) as f64 / dp).clamp(0.0, 1.0);
-    (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+    (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t)
 }
 
 // ─── Public Recorder ─────────────────────────────────────────────────────────
@@ -237,8 +252,9 @@ impl TrackRecorder {
 
         let lap_dist_pct = client.get_f32("LapDistPct").unwrap_or(0.0);
         let session_time = client.get_f64("SessionTime").unwrap_or(0.0);
-        let vx = client.get_f32("VelocityX").unwrap_or(0.0);
-        let vy = client.get_f32("VelocityY").unwrap_or(0.0);
+        let vx  = client.get_f32("VelocityX").unwrap_or(0.0);
+        let vy  = client.get_f32("VelocityY").unwrap_or(0.0);
+        let vz  = client.get_f32("VelocityZ").unwrap_or(0.0);
         let yaw = client.get_f32("Yaw").unwrap_or(0.0);
 
         // Pre-arm phase: wait for the first S/F crossing before accumulating samples.
@@ -278,7 +294,11 @@ impl TrackRecorder {
         // Detect S/F crossing (p wraps from >0.95 back to <0.05).
         let lap_wrapped = rec.last_p > 0.95 && lap_dist_pct < 0.05 && rec.initialized;
 
-        rec.push(vx, vy, yaw, session_time, lap_dist_pct);
+        // Don't push the wrap-around sample: it has p≈0.01 but accumulates the full lap's
+        // integ_x/y, which would corrupt the sort and make finalize()'s detrend fail.
+        if !lap_wrapped {
+            rec.push(vx, vy, vz, yaw, session_time, lap_dist_pct);
+        }
 
         if lap_wrapped {
             let finished_rec = self.recording.take().unwrap();

@@ -4,22 +4,27 @@ import type { TrackShape } from '@shared/TrackShape'
 import type { TrackCar } from '@shared/TrackCar'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
 import { SettingsDrawer } from '../components/SettingsDrawer'
+import { WindCompass, windCardinal } from '../components/WindCompass'
 import { TrackMapSettings } from './TrackMapSettings'
 
 interface Props {
   snap: TrackMapSnapshot | null
   playerCarIdx: number | null
   info: SessionInfoYaml | null
+  windDir: number | null
 }
 
 // ─── Settings persistence ─────────────────────────────────────────────────────
 
-const TRACK_W_KEY    = 'iracing-trackmap-track-width'
-const CAR_R_KEY      = 'iracing-trackmap-car-size'
-const SF_LEN_KEY     = 'iracing-trackmap-sf-length'
+const TRACK_W_KEY     = 'iracing-trackmap-track-width'
+const CAR_R_KEY       = 'iracing-trackmap-car-size'
+const SF_LEN_KEY      = 'iracing-trackmap-sf-length'
 const SECTOR_SHOW_KEY = 'iracing-trackmap-sector-show'
 const SECTOR_LEN_KEY  = 'iracing-trackmap-sector-length'
 const FONT_SIZE_KEY   = 'iracing-trackmap-font-size'
+const MODE3D_KEY      = 'iracing-trackmap-mode3d'
+const TILT_KEY        = 'iracing-trackmap-tilt'
+const ZEXAG_KEY       = 'iracing-trackmap-zexag'
 
 function loadNum(key: string, def: number, min: number, max: number): number {
   try {
@@ -35,6 +40,9 @@ interface DrawSettings {
   sfLength: number
   sectorShow: boolean
   sectorLength: number
+  mode3d: boolean
+  tiltDeg: number
+  zExag: number
 }
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
@@ -53,6 +61,15 @@ function lerpPct(a: number, b: number, t: number): number {
   if (d >  0.5) d -= 1  // shortest path across S/F wrap
   if (d < -0.5) d += 1
   return ((a + d * t) % 1 + 1) % 1
+}
+
+// ─── Elevation color helper ───────────────────────────────────────────────────
+
+function elevColor(t: number): string {
+  const h = Math.round(220 - t * 190)  // 220° blue → 30° orange
+  const s = Math.round(28 + t * 10)    // 28 → 38% (vorher 70–90, jetzt dezenter)
+  const l = Math.round(52 + t * 6)     // 52 → 58%
+  return `hsl(${h},${s}%,${l}%)`
 }
 
 // ─── Shape path cache ─────────────────────────────────────────────────────────
@@ -76,11 +93,27 @@ interface ShapeCache {
   startNormalX: number
   startNormalY: number
   sectorMarkers: SectorMarker[]
-  toScreen: (x: number, y: number) => [number, number]
-  ptAtP: (p: number) => [number, number]
+  toScreen: (x: number, y: number, z?: number) => [number, number]
+  ptAtP: (p: number) => [number, number, number]  // [sx, sy, zWorld]
+  // 3D visual cues — empty/zero in 2D mode
+  pts3d: [number, number][]  // pre-projected screen coords per track point
+  shadowPath: Path2D          // track footprint at z=zMin
+  segmentColors: string[]     // per-segment elevation color
+  gridSegs: number[]          // flat [x1,y1,x2,y2,alpha, …] for ground grid
+  zMin: number
+  zExagFactor: number         // zExag * s * sinT — converts Δz to Δpx for poles
 }
 
-function buildShapeCache(shape: TrackShape, sectors: number[], w: number, h: number, key: string): ShapeCache {
+function buildShapeCache(
+  shape: TrackShape,
+  sectors: number[],
+  w: number,
+  h: number,
+  key: string,
+  mode3d: boolean,
+  tiltDeg: number,
+  zExag: number,
+): ShapeCache {
   const PAD = 20
   const [xmin, ymin, xmax, ymax] = shape.bounds
   const rw = xmax - xmin
@@ -96,25 +129,41 @@ function buildShapeCache(shape: TrackShape, sectors: number[], w: number, h: num
       startNormalY: 1,
       sectorMarkers: [],
       toScreen: () => [w / 2, h / 2],
-      ptAtP: () => [w / 2, h / 2],
+      ptAtP: () => [w / 2, h / 2, 0],
+      pts3d: [],
+      shadowPath: new Path2D(),
+      segmentColors: [],
+      gridSegs: [],
+      zMin: 0,
+      zExagFactor: 0,
     }
     return noop
   }
+
+  // Precompute 3D projection constants.
+  const rad  = mode3d ? tiltDeg * Math.PI / 180 : 0
+  const cosT = Math.cos(rad)  // y-compression factor; 1 in 2D mode
+  const sinT = Math.sin(rad)  // z-lift factor; 0 in 2D mode
+  const zBounds = shape.zBounds ?? [0, 0]
+  const zmid = (zBounds[0] + zBounds[1]) / 2
+
+
   const s = Math.min((w - PAD * 2) / rw, (h - PAD * 2) / rh)
   const cx = w / 2 - ((xmin + xmax) / 2) * s
-  const cy = h / 2 + ((ymin + ymax) / 2) * s  // y flipped (world +Y = up, canvas +Y = down)
+  // Center the projected track: Y is compressed by cosT so the centroid shifts.
+  const cy = h / 2 + ((ymin + ymax) / 2) * s * cosT
 
-  const toScreen = (x: number, y: number): [number, number] => [
+  const toScreen = (x: number, y: number, z = 0): [number, number] => [
     cx + x * s,
-    cy - y * s,
+    cy - y * s * cosT - (z - zmid) * zExag * s * sinT,
   ]
 
   const pts = shape.points
   const n = pts.length
 
-  // Binary search for interpolated screen position at lap dist pct p.
-  const ptAtP = (p: number): [number, number] => {
-    if (n === 0) return [w / 2, h / 2]
+  // Binary search for interpolated screen position + z at lap dist pct p.
+  const ptAtP = (p: number): [number, number, number] => {
+    if (n === 0) return [w / 2, h / 2, 0]
     const norm = ((p % 1) + 1) % 1
     let lo = 0
     let hi = n - 1
@@ -127,33 +176,101 @@ function buildShapeCache(shape: TrackShape, sectors: number[], w: number, h: num
     const b = pts[lo]
     const dp = b.p - a.p
     const t = dp > 1e-6 ? (norm - a.p) / dp : 0
-    return toScreen(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+    const wx = a.x + (b.x - a.x) * t
+    const wy = a.y + (b.y - a.y) * t
+    const wz = a.z + (b.z - a.z) * t
+    const [sx, sy] = toScreen(wx, wy, wz)
+    return [sx, sy, wz]
   }
 
-  // Build outer path (thick, "asphalt").
+  // Pre-project all track points and build paths in a single pass.
+  const pts3d: [number, number][] = new Array(n)
   const outer = new Path2D()
-  for (let i = 0; i < n; i++) {
-    const [sx, sy] = toScreen(pts[i].x, pts[i].y)
-    if (i === 0) outer.moveTo(sx, sy)
-    else outer.lineTo(sx, sy)
-  }
-  outer.closePath()
-
-  // Inner path — same route, thinner stroke for centre line.
   const inner = new Path2D()
   for (let i = 0; i < n; i++) {
-    const [sx, sy] = toScreen(pts[i].x, pts[i].y)
-    if (i === 0) inner.moveTo(sx, sy)
-    else inner.lineTo(sx, sy)
+    const sc = toScreen(pts[i].x, pts[i].y, pts[i].z)
+    pts3d[i] = sc
+    if (i === 0) { outer.moveTo(sc[0], sc[1]); inner.moveTo(sc[0], sc[1]) }
+    else          { outer.lineTo(sc[0], sc[1]); inner.lineTo(sc[0], sc[1]) }
   }
+  outer.closePath()
   inner.closePath()
 
-  const [startX, startY] = toScreen(pts[0].x, pts[0].y)
+  // 3D cues: elevation gradient colors, shadow path at z=zMin.
+  const zBoundsArr = shape.zBounds ?? [0, 0]
+  const zMin = zBoundsArr[0]
+  const zMax = zBoundsArr[1]
+  const zRange = zMax - zMin
+  const zExagFactor = mode3d ? zExag * s * sinT : 0
+
+  const segmentColors: string[] = mode3d
+    ? pts.map(pt => {
+        const t = zRange > 0 ? Math.max(0, Math.min(1, (pt.z - zMin) / zRange)) : 0
+        return elevColor(t)
+      })
+    : []
+
+  const shadowPath = new Path2D()
+  if (mode3d) {
+    for (let i = 0; i < n; i++) {
+      const [sx, sy] = toScreen(pts[i].x, pts[i].y, zMin)
+      if (i === 0) shadowPath.moveTo(sx, sy)
+      else shadowPath.lineTo(sx, sy)
+    }
+    shadowPath.closePath()
+  }
+
+  // Ground grid on the z=zMin plane with radial alpha fade (3D mode only).
+  const gridSegs: number[] = []
+  if (mode3d) {
+    const cxw  = (xmin + xmax) / 2
+    const cyw  = (ymin + ymax) / 2
+    const extent = Math.max(rw, rh) * 1.5
+    const half   = extent / 2
+    const target = extent / 10
+    const pow    = Math.pow(10, Math.floor(Math.log10(target)))
+    const mant   = target / pow
+    const spacing = (mant < 2 ? 1 : mant < 5 ? 2 : 5) * pow
+    const xStart  = Math.ceil((cxw - half) / spacing) * spacing
+    const xEnd    = Math.floor((cxw + half) / spacing) * spacing
+    const yStart  = Math.ceil((cyw - half) / spacing) * spacing
+    const yEnd    = Math.floor((cyw + half) / spacing) * spacing
+    const fadeR   = Math.max(rw, rh) * 0.55
+    const SUB     = 24
+    const fadeA   = (wx: number, wy: number): number => {
+      const d = Math.hypot(wx - cxw, wy - cyw)
+      return Math.max(0, 1 - (d / (fadeR * 1.4)) ** 2) * 0.22
+    }
+    for (let gx = xStart; gx <= xEnd + 1e-6; gx += spacing) {
+      for (let i = 0; i < SUB; i++) {
+        const wy0 = cyw - half + (i / SUB) * extent
+        const wy1 = cyw - half + ((i + 1) / SUB) * extent
+        const a   = (fadeA(gx, wy0) + fadeA(gx, wy1)) / 2
+        if (a < 0.01) continue
+        const [sx0, sy0] = toScreen(gx, wy0, zMin)
+        const [sx1, sy1] = toScreen(gx, wy1, zMin)
+        gridSegs.push(sx0, sy0, sx1, sy1, a)
+      }
+    }
+    for (let gy = yStart; gy <= yEnd + 1e-6; gy += spacing) {
+      for (let i = 0; i < SUB; i++) {
+        const wx0 = cxw - half + (i / SUB) * extent
+        const wx1 = cxw - half + ((i + 1) / SUB) * extent
+        const a   = (fadeA(wx0, gy) + fadeA(wx1, gy)) / 2
+        if (a < 0.01) continue
+        const [sx0, sy0] = toScreen(wx0, gy, zMin)
+        const [sx1, sy1] = toScreen(wx1, gy, zMin)
+        gridSegs.push(sx0, sy0, sx1, sy1, a)
+      }
+    }
+  }
+
+  const [startX, startY] = toScreen(pts[0].x, pts[0].y, pts[0].z)
 
   // Compute the unit normal at p=0 in screen space to draw the S/F line perpendicular
   // to the track tangent. We use the two neighbours of the first point.
-  const [ax, ay] = toScreen(pts[(n - 1) % n].x, pts[(n - 1) % n].y)
-  const [bx, by] = toScreen(pts[1 % n].x, pts[1 % n].y)
+  const [ax, ay] = toScreen(pts[(n - 1) % n].x, pts[(n - 1) % n].y, pts[(n - 1) % n].z)
+  const [bx, by] = toScreen(pts[1 % n].x, pts[1 % n].y, pts[1 % n].z)
   const dx = bx - ax
   const dy = by - ay
   const len = Math.hypot(dx, dy) || 1
@@ -172,14 +289,20 @@ function buildShapeCache(shape: TrackShape, sectors: number[], w: number, h: num
     return { x: mx, y: my, nx: -sdy / slen, ny: sdx / slen, num: i + 2 }
   })
 
-  return { key, w, h, outerPath: outer, innerPath: inner, startX, startY, startNormalX, startNormalY, sectorMarkers, toScreen, ptAtP }
+  return {
+    key, w, h,
+    outerPath: outer, innerPath: inner,
+    startX, startY, startNormalX, startNormalY,
+    sectorMarkers, toScreen, ptAtP,
+    pts3d, shadowPath, segmentColors, gridSegs, zMin, zExagFactor,
+  }
 }
 
 const RESAMPLE_N = 512
 
 // ─── Widget ───────────────────────────────────────────────────────────────────
 
-export function TrackMap({ snap, playerCarIdx, info }: Props) {
+export function TrackMap({ snap, playerCarIdx, info, windDir }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef   = useRef<number>(0)
   const dataRef   = useRef({ snap, playerCarIdx })
@@ -199,10 +322,15 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
   })
   const [sectorLength, setSectorLength] = useState(() => loadNum(SECTOR_LEN_KEY, 12, 4, 40))
   const [fontSize,     setFontSize]     = useState(() => loadNum(FONT_SIZE_KEY, 12, 8, 20))
+  const [mode3d,       setMode3d]       = useState(() => {
+    try { return localStorage.getItem(MODE3D_KEY) === 'true' } catch { return false }
+  })
+  const [tiltDeg,      setTiltDeg]      = useState(() => loadNum(TILT_KEY, 45, 0, 75))
+  const [zExag,        setZExag]        = useState(() => loadNum(ZEXAG_KEY, 10, 1, 50))
   const [showSettings, setShowSettings] = useState(false)
 
-  const settingsRef = useRef<DrawSettings>({ trackWidth, carRadius, sfLength, sectorShow, sectorLength })
-  settingsRef.current = { trackWidth, carRadius, sfLength, sectorShow, sectorLength }
+  const settingsRef = useRef<DrawSettings>({ trackWidth, carRadius, sfLength, sectorShow, sectorLength, mode3d, tiltDeg, zExag })
+  settingsRef.current = { trackWidth, carRadius, sfLength, sectorShow, sectorLength, mode3d, tiltDeg, zExag }
 
   // Keep latest props accessible in the rAF loop without re-scheduling.
   // Detect new snapshots (reference change) and update interpolation state.
@@ -260,11 +388,12 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
         return
       }
 
-      // Rebuild shape cache on first render or after track/size/sector change.
+      // Rebuild shape cache on track/size/sector/3D-setting change.
       const sectors = snap.sectors ?? []
-      const cacheKey = `${shape.trackKey}:${w}:${h}:${sectors.join(',')}`
+      const { mode3d, tiltDeg, zExag } = settings
+      const cacheKey = `${shape.trackKey}:${w}:${h}:${sectors.join(',')}:${mode3d?'3':'2'}:${tiltDeg}:${zExag}`
       if (!cacheRef.current || cacheRef.current.key !== cacheKey) {
-        cacheRef.current = buildShapeCache(shape, sectors, w, h, cacheKey)
+        cacheRef.current = buildShapeCache(shape, sectors, w, h, cacheKey, mode3d, tiltDeg, zExag)
       }
       const cache = cacheRef.current
 
@@ -289,6 +418,8 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
     setSectorShow(true); persist(SECTOR_SHOW_KEY, true)
     setSectorLength(12); persist(SECTOR_LEN_KEY, 12)
     setFontSize(12);     persist(FONT_SIZE_KEY, 12)
+    setTiltDeg(45);      persist(TILT_KEY, 45)
+    setZExag(10);        persist(ZEXAG_KEY, 10)
   }
 
   return (
@@ -318,12 +449,16 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
             sectorShow={sectorShow}
             sectorLength={sectorLength}
             fontSize={fontSize}
+            tiltDeg={tiltDeg}
+            zExag={zExag}
             onTrackWidth={v => { setTrackWidth(v); persist(TRACK_W_KEY, v) }}
             onCarRadius={v => { setCarRadius(v); persist(CAR_R_KEY, v) }}
             onSfLength={v => { setSfLength(v); persist(SF_LEN_KEY, v) }}
             onSectorShow={v => { setSectorShow(v); persist(SECTOR_SHOW_KEY, v) }}
             onSectorLength={v => { setSectorLength(v); persist(SECTOR_LEN_KEY, v) }}
             onFontSize={v => { setFontSize(v); persist(FONT_SIZE_KEY, v) }}
+            onTiltDeg={v => { setTiltDeg(v); persist(TILT_KEY, v) }}
+            onZExag={v => { setZExag(v); persist(ZEXAG_KEY, v) }}
             onResetAll={handleResetAll}
           />
         </SettingsDrawer>
@@ -332,7 +467,18 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
             ref={canvasRef}
             style={{ display: 'block', width: '100%', height: '100%' }}
           />
+          <button
+            className={`header-btn${mode3d ? ' header-btn-active' : ''}`}
+            onClick={() => { const next = !mode3d; setMode3d(next); persist(MODE3D_KEY, next) }}
+            title={mode3d ? 'Switch to 2D view' : 'Switch to 3D view'}
+            style={{ position: 'absolute', top: 8, right: 8, zIndex: 2 }}
+          >{mode3d ? '3D' : '2D'}</button>
           <TrackInfoOverlay info={info} fontSize={fontSize} />
+          {windDir != null && (
+            <div style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 2, pointerEvents: 'none', opacity: 0.85 }}>
+              <WindCompass windRad={windDir} size={44} title={`Wind from ${windCardinal(windDir)}`} />
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -354,16 +500,61 @@ function drawOverlay(ctx: CanvasRenderingContext2D, w: number, h: number, text: 
 }
 
 function drawTrackShape(ctx: CanvasRenderingContext2D, cache: ShapeCache, s: DrawSettings) {
-  // Outer asphalt strip.
-  ctx.strokeStyle = '#2a2a2a'
-  ctx.lineWidth = s.trackWidth
-  ctx.lineJoin = 'round'
-  ctx.stroke(cache.outerPath)
+  if (s.mode3d && cache.segmentColors.length > 0) {
+    // ── 3D mode ──────────────────────────────────────────────────────────────
+    // 0. Ground grid on z=zMin with radial fade.
+    const g = cache.gridSegs
+    if (g.length > 0) {
+      ctx.save()
+      ctx.lineWidth = 1
+      for (let i = 0; i < g.length; i += 5) {
+        ctx.strokeStyle = `rgba(150,160,190,${g[i + 4].toFixed(3)})`
+        ctx.beginPath()
+        ctx.moveTo(g[i], g[i + 1])
+        ctx.lineTo(g[i + 2], g[i + 3])
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
 
-  // Centre line — proportional to track width.
-  ctx.strokeStyle = '#3a3a3a'
-  ctx.lineWidth = Math.max(1, s.trackWidth * 0.25)
-  ctx.stroke(cache.innerPath)
+    // 1. Ground shadow at z=zMin: thin, muted stroke shows track footprint.
+    ctx.save()
+    ctx.strokeStyle = 'rgba(170, 180, 210, 0.38)'
+    ctx.lineWidth = s.trackWidth * 0.7
+    ctx.lineJoin = 'round'
+    ctx.stroke(cache.shadowPath)
+    ctx.restore()
+
+    // 2. Elevation-colored track — segment by segment (Painter-friendly).
+    ctx.save()
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+    ctx.lineWidth = s.trackWidth
+    const pd = cache.pts3d
+    const colors = cache.segmentColors
+    const np = pd.length
+    for (let i = 0; i < np; i++) {
+      const j = (i + 1) % np
+      ctx.strokeStyle = colors[i]
+      ctx.beginPath()
+      ctx.moveTo(pd[i][0], pd[i][1])
+      ctx.lineTo(pd[j][0], pd[j][1])
+      ctx.stroke()
+    }
+    ctx.restore()
+  } else {
+    // ── 2D mode: fast Path2D ─────────────────────────────────────────────────
+    // Outer asphalt strip.
+    ctx.strokeStyle = '#2a2a2a'
+    ctx.lineWidth = s.trackWidth
+    ctx.lineJoin = 'round'
+    ctx.stroke(cache.outerPath)
+
+    // Centre line — proportional to track width.
+    ctx.strokeStyle = '#3a3a3a'
+    ctx.lineWidth = Math.max(1, s.trackWidth * 0.25)
+    ctx.stroke(cache.innerPath)
+  }
 
   // Start/finish line — perpendicular to the track tangent at p=0.
   const half = s.sfLength / 2
@@ -466,18 +657,55 @@ function drawCars(
 ) {
   const prevMap = new Map(prevCars.map((c) => [c.carIdx, c.lapDistPct]))
 
-  // OnTrack (surface=3) cars rendered last so they appear on top.
-  const sorted = [...cars].sort((a, b) => {
-    const sa = a.carIdx === playerIdx ? 10 : (a.surface === 3 ? 1 : 0)
-    const sb = b.carIdx === playerIdx ? 10 : (b.surface === 3 ? 1 : 0)
-    return sa - sb
+  // Pre-compute screen positions so we can z-sort before drawing (Painter's algorithm).
+  const visible = cars
+    .filter(car => car.surface !== -1)
+    .map(car => {
+      const pct = lerpPct(prevMap.get(car.carIdx) ?? car.lapDistPct, car.lapDistPct, t)
+      const [sx, sy, zWorld] = cache.ptAtP(pct)
+      const isPlayer = car.carIdx === playerIdx
+      return { car, sx, sy, zWorld, isPlayer }
+    })
+
+  // OnTrack (surface=3) above off-track; player always on top.
+  // In 3D mode also sort by elevation ascending so higher cars render over lower ones.
+  visible.sort((a, b) => {
+    const pa = a.isPlayer ? 2 : (a.car.surface === 3 ? 1 : 0)
+    const pb = b.isPlayer ? 2 : (b.car.surface === 3 ? 1 : 0)
+    if (pa !== pb) return pa - pb
+    return s.mode3d ? a.zWorld - b.zWorld : 0
   })
 
-  for (const car of sorted) {
-    if (car.surface === -1) continue
-    const pct = lerpPct(prevMap.get(car.carIdx) ?? car.lapDistPct, car.lapDistPct, t)
-    const [sx, sy] = cache.ptAtP(pct)
-    drawCarDot(ctx, sx, sy, car, car.carIdx === playerIdx, s.carRadius)
+  // In 3D mode: draw shadow blobs + depth poles before all car dots
+  // so car bodies always render on top regardless of elevation order.
+  if (s.mode3d && cache.zExagFactor > 0) {
+    for (const { sx, sy, zWorld, isPlayer } of visible) {
+      const poleH = (zWorld - cache.zMin) * cache.zExagFactor
+      if (poleH < 1) continue
+      const shadowY = sy + poleH
+      // Shadow blob at ground level.
+      ctx.save()
+      ctx.globalAlpha = 0.35
+      ctx.beginPath()
+      ctx.arc(sx, shadowY, s.carRadius * 0.9, 0, Math.PI * 2)
+      ctx.fillStyle = isPlayer ? 'rgba(250,204,21,0.6)' : 'rgba(140,160,255,0.5)'
+      ctx.fill()
+      ctx.restore()
+      // Vertical pole connecting car to its shadow.
+      ctx.save()
+      ctx.globalAlpha = 0.3
+      ctx.beginPath()
+      ctx.moveTo(sx, sy + s.carRadius)
+      ctx.lineTo(sx, shadowY - s.carRadius * 0.7)
+      ctx.strokeStyle = isPlayer ? '#facc15' : '#99aadd'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+      ctx.restore()
+    }
+  }
+
+  for (const { car, sx, sy, isPlayer } of visible) {
+    drawCarDot(ctx, sx, sy, car, isPlayer, s.carRadius)
   }
 }
 

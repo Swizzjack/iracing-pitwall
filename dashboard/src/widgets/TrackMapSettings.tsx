@@ -5,19 +5,23 @@ interface Props {
   sectorShow: boolean
   sectorLength: number
   fontSize: number
+  tiltDeg: number
+  zExag: number
   onTrackWidth: (v: number) => void
   onCarRadius: (v: number) => void
   onSfLength: (v: number) => void
   onSectorShow: (v: boolean) => void
   onSectorLength: (v: number) => void
   onFontSize: (v: number) => void
+  onTiltDeg: (v: number) => void
+  onZExag: (v: number) => void
   onResetAll: () => void
 }
 
 export function TrackMapSettings({
-  trackWidth, carRadius, sfLength, sectorShow, sectorLength, fontSize,
+  trackWidth, carRadius, sfLength, sectorShow, sectorLength, fontSize, tiltDeg, zExag,
   onTrackWidth, onCarRadius, onSfLength, onSectorShow, onSectorLength, onFontSize,
-  onResetAll,
+  onTiltDeg, onZExag, onResetAll,
 }: Props) {
   return (
     <>
@@ -72,6 +76,22 @@ export function TrackMapSettings({
           <input type="range" min={8} max={20} step={1} value={fontSize}
             onChange={e => onFontSize(+e.target.value)} />
           <span>{fontSize}px</span>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">3D view</div>
+        <div className="settings-footer-row">
+          <label>Tilt</label>
+          <input type="range" min={0} max={75} step={1} value={tiltDeg}
+            onChange={e => onTiltDeg(+e.target.value)} />
+          <span>{tiltDeg}°</span>
+        </div>
+        <div className="settings-footer-row">
+          <label>Elevation</label>
+          <input type="range" min={1} max={50} step={1} value={zExag}
+            onChange={e => onZExag(+e.target.value)} />
+          <span>{zExag}×</span>
         </div>
       </div>
 
