@@ -1193,3 +1193,15 @@ details ul {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ── Wind Widget ─────────────────────────────────────────────────────────── */
+
+@keyframes wind-flow {
+  from { stroke-dashoffset: 10; }
+  to   { stroke-dashoffset: -10; }
+}
+
+.wind-streamline {
+  stroke-dasharray: 3 5;
+  animation: wind-flow 1.4s linear infinite;
+}
