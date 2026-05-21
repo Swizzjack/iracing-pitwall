@@ -23,6 +23,16 @@ function unwrapAngle(prev: number, next: number): number {
   return prev + delta
 }
 
+// Orange at 0° (headwind), blue at 180° (tailwind)
+function windColor(relWindDeg: number): string {
+  const norm = ((relWindDeg % 360) + 360) % 360
+  const t = (Math.cos(norm * Math.PI / 180) + 1) / 2
+  const r = Math.round(255 * t + 91 * (1 - t))
+  const g = Math.round(107 * t + 201 * (1 - t))
+  const b = Math.round(53 * t + 255 * (1 - t))
+  return `rgb(${r},${g},${b})`
+}
+
 // ─── Compass data ─────────────────────────────────────────────────────────────
 
 const RING_R = 44
@@ -58,30 +68,13 @@ const COMPASS_LABELS = [
 // ─── SVG gauge ────────────────────────────────────────────────────────────────
 
 interface GaugeProps {
-  windVel: number | null
-  windDir: number | null
-  carHeadingRad: number
-  prevWindDirRef: React.MutableRefObject<number>
-  prevCarHeadingRef: React.MutableRefObject<number>
+  isCalm: boolean
+  relWindDeg: number
+  carHeadingDeg: number
+  markerColor: string
 }
 
-function WindGauge({ windVel, windDir, carHeadingRad, prevWindDirRef, prevCarHeadingRef }: GaugeProps) {
-  const isCalm = windVel == null || windDir == null || windVel < 0.5
-
-  // Car heading in degrees (0=N, clockwise), unwrapped for smooth ring rotation
-  const rawCarHeadingDeg = ((carHeadingRad * 180 / Math.PI) % 360 + 360) % 360
-  const carHeadingDeg = unwrapAngle(prevCarHeadingRef.current, rawCarHeadingDeg)
-  prevCarHeadingRef.current = carHeadingDeg
-
-  // Wind direction relative to car (where wind hits the car from, car-centric)
-  let relWindDeg = prevWindDirRef.current
-  if (!isCalm) {
-    const windDirDeg = ((windDir! * 180 / Math.PI) % 360 + 360) % 360
-    const rawRelWind = ((windDirDeg - rawCarHeadingDeg) % 360 + 360) % 360
-    relWindDeg = unwrapAngle(prevWindDirRef.current, rawRelWind)
-    prevWindDirRef.current = relWindDeg
-  }
-
+function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor }: GaugeProps) {
   return (
     <svg
       viewBox="-62 -62 124 124"
@@ -118,16 +111,18 @@ function WindGauge({ windVel, windDir, carHeadingRad, prevWindDirRef, prevCarHea
         ))}
       </g>
 
-      {/* ── Car silhouette (static, nose = top = driving direction) ───── */}
-      <path d="M -3 -38 L 3 -38 L 11 -22 L 11 28 L -11 28 L -11 -22 Z" fill="#FFCC00" />
-      <rect x="-15" y="-24" width="5" height="12" rx="1.5" fill="#1a1a1a" />
-      <rect x="10"  y="-24" width="5" height="12" rx="1.5" fill="#1a1a1a" />
-      <rect x="-15" y="10"  width="5" height="15" rx="1.5" fill="#1a1a1a" />
-      <rect x="10"  y="10"  width="5" height="15" rx="1.5" fill="#1a1a1a" />
-      <ellipse cx="0" cy="-2" rx="4" ry="6" fill="#1a1a1a" />
-      <rect x="-18" y="30" width="36" height="5" rx="1.5" fill="#1a1a1a" />
+      {/* ── Car silhouette at 90%, nose = top = driving direction ─────── */}
+      <g transform="scale(0.9)">
+        <path d="M -3 -38 L 3 -38 L 11 -22 L 11 28 L -11 28 L -11 -22 Z" fill="#FFCC00" />
+        <rect x="-15" y="-24" width="5" height="12" rx="1.5" fill="#484848" />
+        <rect x="10"  y="-24" width="5" height="12" rx="1.5" fill="#484848" />
+        <rect x="-15" y="10"  width="5" height="15" rx="1.5" fill="#484848" />
+        <rect x="10"  y="10"  width="5" height="15" rx="1.5" fill="#484848" />
+        <ellipse cx="0" cy="-2" rx="4" ry="6" fill="#1a1a1a" />
+        <rect x="-18" y="30" width="36" height="5" rx="1.5" fill="#FFCC00" />
+      </g>
 
-      {/* ── Wind indicator: orange triangle, relative to car heading.     */}
+      {/* ── Wind indicator: triangle, relative to car heading.           */}
       {/* Triangle at top (y=-53..-34) rotated by relWindDeg, so it shows */}
       {/* the compass direction FROM which wind hits the car.              */}
       {!isCalm && (
@@ -135,7 +130,7 @@ function WindGauge({ windVel, windDir, carHeadingRad, prevWindDirRef, prevCarHea
           transform={`rotate(${relWindDeg})`}
           style={{ transition: 'transform 300ms ease-out' }}
         >
-          <path d="M -11 -53 L 11 -53 L 0 -34 Z" fill="#FF6B35" />
+          <path d="M -11 -53 L 11 -53 L 0 -34 Z" fill={markerColor} />
         </g>
       )}
     </svg>
@@ -204,6 +199,21 @@ export function Wind({ snap }: Props) {
   const carHeadingRad = yawNorth ?? yaw
   const isCalm = windVel == null || windDir == null || windVel < 0.5
 
+  // Compute angles here so markerColor is available for the speed display too
+  const rawCarHeadingDeg = ((carHeadingRad * 180 / Math.PI) % 360 + 360) % 360
+  const carHeadingDeg = unwrapAngle(prevCarHeadingRef.current, rawCarHeadingDeg)
+  prevCarHeadingRef.current = carHeadingDeg
+
+  let relWindDeg = prevWindDirRef.current
+  if (!isCalm) {
+    const windDirDeg = ((windDir! * 180 / Math.PI) % 360 + 360) % 360
+    const rawRelWind = ((windDirDeg - rawCarHeadingDeg) % 360 + 360) % 360
+    relWindDeg = unwrapAngle(prevWindDirRef.current, rawRelWind)
+    prevWindDirRef.current = relWindDeg
+  }
+
+  const markerColor = isCalm ? '#5BC9FF' : windColor(relWindDeg)
+
   return (
     <section className="card" style={{ '--widget-font-scale-local': fontScale } as React.CSSProperties}>
       <h2 style={{ display: 'flex', alignItems: 'center' }}>
@@ -229,11 +239,10 @@ export function Wind({ snap }: Props) {
         <div style={{ flex: '1 1 0', minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ width: '100%', maxWidth: '100%', maxHeight: '100%', aspectRatio: '1 / 1' }}>
             <WindGauge
-              windVel={windVel}
-              windDir={windDir}
-              carHeadingRad={carHeadingRad}
-              prevWindDirRef={prevWindDirRef}
-              prevCarHeadingRef={prevCarHeadingRef}
+              isCalm={isCalm}
+              relWindDeg={relWindDeg}
+              carHeadingDeg={carHeadingDeg}
+              markerColor={markerColor}
             />
           </div>
         </div>
@@ -251,13 +260,13 @@ export function Wind({ snap }: Props) {
           ) : (
             <>
               <span style={{
-                color: '#5BC9FF',
+                color: markerColor,
                 fontSize: `${28 * fontScale}px`,
                 fontWeight: 600,
                 fontFamily: 'var(--font-mono)',
               }}>{fmtSpeedNum(windVel!, speedUnit)}</span>
               <span style={{
-                color: '#5BC9FF',
+                color: markerColor,
                 fontSize: `${13 * fontScale}px`,
                 fontWeight: 400,
                 marginLeft: 4,
