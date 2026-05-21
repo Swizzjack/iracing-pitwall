@@ -81,6 +81,7 @@ pub struct TelemetrySnapshot {
     pub long_accel: f32,
     pub vert_accel: f32,
     pub yaw: f32,
+    pub yaw_north: Option<f32>,
     pub pitch: f32,
     pub roll: f32,
 
@@ -217,6 +218,7 @@ impl TelemetrySnapshot {
             long_accel: client.get_f32("LongAccel")?,
             vert_accel: client.get_f32("VertAccel")?,
             yaw: client.get_f32("Yaw")?,
+            yaw_north: client.get_f32("YawNorth").ok(),
             pitch: client.get_f32("Pitch")?,
             roll: client.get_f32("Roll")?,
 

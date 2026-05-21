@@ -60,18 +60,26 @@ const COMPASS_LABELS = [
 interface GaugeProps {
   windVel: number | null
   windDir: number | null
+  carHeadingRad: number
   prevWindDirRef: React.MutableRefObject<number>
+  prevCarHeadingRef: React.MutableRefObject<number>
 }
 
-function WindGauge({ windVel, windDir, prevWindDirRef }: GaugeProps) {
+function WindGauge({ windVel, windDir, carHeadingRad, prevWindDirRef, prevCarHeadingRef }: GaugeProps) {
   const isCalm = windVel == null || windDir == null || windVel < 0.5
 
-  // Convert radians to degrees (0=N, clockwise), unwrap for smooth CSS transition
-  let windDirDeg = prevWindDirRef.current
+  // Car heading in degrees (0=N, clockwise), unwrapped for smooth ring rotation
+  const rawCarHeadingDeg = ((carHeadingRad * 180 / Math.PI) % 360 + 360) % 360
+  const carHeadingDeg = unwrapAngle(prevCarHeadingRef.current, rawCarHeadingDeg)
+  prevCarHeadingRef.current = carHeadingDeg
+
+  // Wind direction relative to car (where wind hits the car from, car-centric)
+  let relWindDeg = prevWindDirRef.current
   if (!isCalm) {
-    const rawDeg = ((windDir! * 180 / Math.PI) % 360 + 360) % 360
-    windDirDeg = unwrapAngle(prevWindDirRef.current, rawDeg)
-    prevWindDirRef.current = windDirDeg
+    const windDirDeg = ((windDir! * 180 / Math.PI) % 360 + 360) % 360
+    const rawRelWind = ((windDirDeg - rawCarHeadingDeg) % 360 + 360) % 360
+    relWindDeg = unwrapAngle(prevWindDirRef.current, rawRelWind)
+    prevWindDirRef.current = relWindDeg
   }
 
   return (
@@ -82,53 +90,49 @@ function WindGauge({ windVel, windDir, prevWindDirRef }: GaugeProps) {
       style={{ display: 'block', overflow: 'visible' }}
       aria-label="Wind direction compass"
     >
-      {/* ── Ring ──────────────────────────────────────────────────────── */}
+      {/* ── Ring (static outer circle) ────────────────────────────────── */}
       <circle r={RING_R} fill="none" stroke="#1a1a1a" strokeWidth="1.5" />
 
-      {/* ── Tick marks ────────────────────────────────────────────────── */}
-      {COMPASS_TICKS.map((t, i) => (
-        <line key={i}
-          x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
-          stroke={t.stroke} strokeWidth={t.strokeWidth}
-        />
-      ))}
+      {/* ── Compass rose (ticks + labels) rotate opposite to car heading  */}
+      {/* so the label at the top always shows the car's current heading   */}
+      <g
+        transform={`rotate(${-carHeadingDeg})`}
+        style={{ transition: 'transform 300ms ease-out' }}
+      >
+        {COMPASS_TICKS.map((t, i) => (
+          <line key={i}
+            x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
+            stroke={t.stroke} strokeWidth={t.strokeWidth}
+          />
+        ))}
+        {COMPASS_LABELS.map(l => (
+          <text key={l.label}
+            x={l.x} y={l.y}
+            fill={l.color}
+            fontSize={l.fontSize}
+            fontWeight={l.fontWeight}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            style={{ fontFamily: "'Teko', sans-serif" }}
+          >{l.label}</text>
+        ))}
+      </g>
 
-      {/* ── Cardinal labels (outside ring) ────────────────────────────── */}
-      {COMPASS_LABELS.map(l => (
-        <text key={l.label}
-          x={l.x} y={l.y}
-          fill={l.color}
-          fontSize={l.fontSize}
-          fontWeight={l.fontWeight}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          style={{ fontFamily: "'Teko', sans-serif" }}
-        >{l.label}</text>
-      ))}
-
-      {/* ── Car silhouette (static, nose = top) ───────────────────────── */}
-      {/* body: nose narrow at top (y=-38), flares to full width at y=-22 */}
+      {/* ── Car silhouette (static, nose = top = driving direction) ───── */}
       <path d="M -3 -38 L 3 -38 L 11 -22 L 11 28 L -11 28 L -11 -22 Z" fill="#FFCC00" />
-      {/* front-left wheel */}
       <rect x="-15" y="-24" width="5" height="12" rx="1.5" fill="#1a1a1a" />
-      {/* front-right wheel */}
       <rect x="10"  y="-24" width="5" height="12" rx="1.5" fill="#1a1a1a" />
-      {/* rear-left wheel */}
       <rect x="-15" y="10"  width="5" height="15" rx="1.5" fill="#1a1a1a" />
-      {/* rear-right wheel */}
       <rect x="10"  y="10"  width="5" height="15" rx="1.5" fill="#1a1a1a" />
-      {/* cockpit */}
       <ellipse cx="0" cy="-2" rx="4" ry="6" fill="#1a1a1a" />
-      {/* rear wing */}
       <rect x="-18" y="30" width="36" height="5" rx="1.5" fill="#1a1a1a" />
 
-      {/* ── Wind indicator (orange triangle, rotates with windDirection) ─ */}
-      {/* Placed at N position (top of ring), rotated by windDirDeg.       */}
-      {/* Triangle base outside ring (y=-53), tip inside (y=-34).          */}
-      {/* rotate() with no origin uses SVG origin = our center (0,0).      */}
+      {/* ── Wind indicator: orange triangle, relative to car heading.     */}
+      {/* Triangle at top (y=-53..-34) rotated by relWindDeg, so it shows */}
+      {/* the compass direction FROM which wind hits the car.              */}
       {!isCalm && (
         <g
-          transform={`rotate(${windDirDeg})`}
+          transform={`rotate(${relWindDeg})`}
           style={{ transition: 'transform 300ms ease-out' }}
         >
           <path d="M -11 -53 L 11 -53 L 0 -34 Z" fill="#FF6B35" />
@@ -174,7 +178,8 @@ export function Wind({ snap }: Props) {
   const [speedUnit, setSpeedUnit] = useState<SpeedUnit>(() => loadSettings().speedUnit)
   const [fontScale, setFontScale]  = useState(() => loadSettings().fontScale)
 
-  const prevWindDirRef = useRef(0)
+  const prevWindDirRef    = useRef(0)
+  const prevCarHeadingRef = useRef(0)
 
   function handleSpeedUnit(u: SpeedUnit) { setSpeedUnit(u); save(LS_UNITS, u) }
   function handleFontScale(v: number)    { setFontScale(v); save(LS_FONTSCALE, String(v)) }
@@ -195,7 +200,8 @@ export function Wind({ snap }: Props) {
     )
   }
 
-  const { windVel, windDir } = snap
+  const { windVel, windDir, yawNorth, yaw } = snap
+  const carHeadingRad = yawNorth ?? yaw
   const isCalm = windVel == null || windDir == null || windVel < 0.5
 
   return (
@@ -225,7 +231,9 @@ export function Wind({ snap }: Props) {
             <WindGauge
               windVel={windVel}
               windDir={windDir}
+              carHeadingRad={carHeadingRad}
               prevWindDirRef={prevWindDirRef}
+              prevCarHeadingRef={prevCarHeadingRef}
             />
           </div>
         </div>
