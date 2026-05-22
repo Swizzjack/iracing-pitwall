@@ -962,6 +962,18 @@ details ul {
   box-shadow: 0 0 8px #3b82f630;
 }
 
+/* ── Wind chevron pulse animation ─────────────────────────────────────── */
+
+@keyframes wind-chevron-pulse {
+  0%, 100% { opacity: 0.18 }
+  35%       { opacity: 1    }
+  65%       { opacity: 0.18 }
+}
+
+.wind-chevron-outer { animation: wind-chevron-pulse 1.5s ease-in-out infinite; animation-delay: 0s; }
+.wind-chevron-mid   { animation: wind-chevron-pulse 1.5s ease-in-out infinite; animation-delay: 0.25s; }
+.wind-chevron-inner { animation: wind-chevron-pulse 1.5s ease-in-out infinite; animation-delay: 0.5s; }
+
 @keyframes elec-blink {
   from { opacity: 1; }
   to   { opacity: 0.3; }

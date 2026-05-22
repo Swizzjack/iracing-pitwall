@@ -1,18 +1,22 @@
 export type SpeedUnit = 'kmh' | 'mph' | 'ms'
+export type MarkerStyle = 'arrow' | 'chevron'
 
 export const SPEED_UNIT_DEFAULT: SpeedUnit = 'kmh'
+export const MARKER_STYLE_DEFAULT: MarkerStyle = 'arrow'
 
 interface Props {
   speedUnit: SpeedUnit
+  markerStyle: MarkerStyle
   fontScale: number
   onSpeedUnit: (u: SpeedUnit) => void
+  onMarkerStyle: (s: MarkerStyle) => void
   onFontScale: (v: number) => void
   onResetAll: () => void
 }
 
 export function WindSettings({
-  speedUnit, fontScale,
-  onSpeedUnit, onFontScale, onResetAll,
+  speedUnit, markerStyle, fontScale,
+  onSpeedUnit, onMarkerStyle, onFontScale, onResetAll,
 }: Props) {
   return (
     <>
@@ -28,6 +32,20 @@ export function WindSettings({
               {u === 'kmh' ? 'km/h' : u === 'mph' ? 'mph' : 'm/s'}
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">Wind Marker</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            className={`settings-btn${markerStyle === 'arrow' ? ' settings-btn-active' : ''}`}
+            onClick={() => onMarkerStyle('arrow')}
+          >Arrow</button>
+          <button
+            className={`settings-btn${markerStyle === 'chevron' ? ' settings-btn-active' : ''}`}
+            onClick={() => onMarkerStyle('chevron')}
+          >Chevron</button>
         </div>
       </div>
 

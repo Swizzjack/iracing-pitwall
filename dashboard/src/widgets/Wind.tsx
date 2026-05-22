@@ -1,7 +1,11 @@
 import { useRef, useState } from 'react'
 import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
 import { SettingsDrawer } from '../components/SettingsDrawer'
-import { WindSettings, SPEED_UNIT_DEFAULT, type SpeedUnit } from './WindSettings'
+import {
+  WindSettings,
+  SPEED_UNIT_DEFAULT, MARKER_STYLE_DEFAULT,
+  type SpeedUnit, type MarkerStyle,
+} from './WindSettings'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,6 +69,44 @@ const COMPASS_LABELS = [
   y: -Math.cos(l.deg * Math.PI / 180) * LABEL_R,
 }))
 
+// ─── Wind marker shapes ───────────────────────────────────────────────────────
+
+// Arrow with shaft pointing toward center (tip at y=-35, shaft up to y=-56).
+function ArrowMarker({ color }: { color: string }) {
+  return (
+    <path
+      d="M 0 -35 L -9 -46 L -3.5 -46 L -3.5 -57 L 3.5 -57 L 3.5 -46 L 9 -46 Z"
+      fill={color}
+    />
+  )
+}
+
+// Three chevrons pointing toward center; outer pulses first → inner last,
+// suggesting wind movement inward (toward the car).
+function ChevronMarker({ color }: { color: string }) {
+  // Each chevron: wide V-shape pointing down (toward center), filled as thin band.
+  // outer: y -55..-49, middle: y -48..-42, inner: y -41..-35
+  return (
+    <g fill={color}>
+      {/* outer */}
+      <path
+        className="wind-chevron-outer"
+        d="M -10 -55 L 0 -49 L 10 -55 L 8 -57 L 0 -51 L -8 -57 Z"
+      />
+      {/* middle */}
+      <path
+        className="wind-chevron-mid"
+        d="M -10 -48 L 0 -42 L 10 -48 L 8 -50 L 0 -44 L -8 -50 Z"
+      />
+      {/* inner */}
+      <path
+        className="wind-chevron-inner"
+        d="M -10 -41 L 0 -35 L 10 -41 L 8 -43 L 0 -37 L -8 -43 Z"
+      />
+    </g>
+  )
+}
+
 // ─── SVG gauge ────────────────────────────────────────────────────────────────
 
 interface GaugeProps {
@@ -72,9 +114,10 @@ interface GaugeProps {
   relWindDeg: number
   carHeadingDeg: number
   markerColor: string
+  markerStyle: MarkerStyle
 }
 
-function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor }: GaugeProps) {
+function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor, markerStyle }: GaugeProps) {
   return (
     <svg
       viewBox="-62 -62 124 124"
@@ -122,15 +165,16 @@ function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor }: GaugeProp
         <rect x="-18" y="30" width="36" height="5" rx="1.5" fill="#FFCC00" />
       </g>
 
-      {/* ── Wind indicator: triangle, relative to car heading.           */}
-      {/* Triangle at top (y=-53..-34) rotated by relWindDeg, so it shows */}
-      {/* the compass direction FROM which wind hits the car.              */}
+      {/* ── Wind marker: rotated by relWindDeg (car-relative)            */}
       {!isCalm && (
         <g
           transform={`rotate(${relWindDeg})`}
           style={{ transition: 'transform 300ms ease-out' }}
         >
-          <path d="M -11 -53 L 11 -53 L 0 -34 Z" fill={markerColor} />
+          {markerStyle === 'arrow'
+            ? <ArrowMarker color={markerColor} />
+            : <ChevronMarker color={markerColor} />
+          }
         </g>
       )}
     </svg>
@@ -139,8 +183,9 @@ function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor }: GaugeProp
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
 
-const LS_UNITS     = 'iracing-wind-units-v1'
-const LS_FONTSCALE = 'iracing-wind-fontscale-v1'
+const LS_UNITS        = 'iracing-wind-units-v1'
+const LS_FONTSCALE    = 'iracing-wind-fontscale-v1'
+const LS_MARKER_STYLE = 'iracing-wind-markerstyle-v1'
 
 function loadSettings() {
   const load = (key: string, fallback: string) => {
@@ -153,8 +198,9 @@ function loadSettings() {
     } catch { return fallback }
   }
   return {
-    speedUnit: load(LS_UNITS, SPEED_UNIT_DEFAULT) as SpeedUnit,
-    fontScale:  loadNum(LS_FONTSCALE, 1),
+    speedUnit:   load(LS_UNITS, SPEED_UNIT_DEFAULT) as SpeedUnit,
+    markerStyle: load(LS_MARKER_STYLE, MARKER_STYLE_DEFAULT) as MarkerStyle,
+    fontScale:   loadNum(LS_FONTSCALE, 1),
   }
 }
 
@@ -169,19 +215,22 @@ interface Props {
 }
 
 export function Wind({ snap }: Props) {
-  const [showSettings, setShowSettings] = useState(false)
-  const [speedUnit, setSpeedUnit] = useState<SpeedUnit>(() => loadSettings().speedUnit)
-  const [fontScale, setFontScale]  = useState(() => loadSettings().fontScale)
+  const [showSettings,  setShowSettings]  = useState(false)
+  const [speedUnit,     setSpeedUnit]     = useState<SpeedUnit>(() => loadSettings().speedUnit)
+  const [markerStyle,   setMarkerStyle]   = useState<MarkerStyle>(() => loadSettings().markerStyle)
+  const [fontScale,     setFontScale]     = useState(() => loadSettings().fontScale)
 
   const prevWindDirRef    = useRef(0)
   const prevCarHeadingRef = useRef(0)
 
-  function handleSpeedUnit(u: SpeedUnit) { setSpeedUnit(u); save(LS_UNITS, u) }
-  function handleFontScale(v: number)    { setFontScale(v); save(LS_FONTSCALE, String(v)) }
+  function handleSpeedUnit(u: SpeedUnit)   { setSpeedUnit(u);     save(LS_UNITS, u) }
+  function handleMarkerStyle(s: MarkerStyle) { setMarkerStyle(s); save(LS_MARKER_STYLE, s) }
+  function handleFontScale(v: number)      { setFontScale(v);     save(LS_FONTSCALE, String(v)) }
 
   function handleResetAll() {
-    setSpeedUnit(SPEED_UNIT_DEFAULT); save(LS_UNITS, SPEED_UNIT_DEFAULT)
-    setFontScale(1);                  save(LS_FONTSCALE, '1')
+    setSpeedUnit(SPEED_UNIT_DEFAULT);     save(LS_UNITS, SPEED_UNIT_DEFAULT)
+    setMarkerStyle(MARKER_STYLE_DEFAULT); save(LS_MARKER_STYLE, MARKER_STYLE_DEFAULT)
+    setFontScale(1);                      save(LS_FONTSCALE, '1')
   }
 
   if (!snap) {
@@ -199,7 +248,6 @@ export function Wind({ snap }: Props) {
   const carHeadingRad = yawNorth ?? yaw
   const isCalm = windVel == null || windDir == null || windVel < 0.5
 
-  // Compute angles here so markerColor is available for the speed display too
   const rawCarHeadingDeg = ((carHeadingRad * 180 / Math.PI) % 360 + 360) % 360
   const carHeadingDeg = unwrapAngle(prevCarHeadingRef.current, rawCarHeadingDeg)
   prevCarHeadingRef.current = carHeadingDeg
@@ -228,8 +276,10 @@ export function Wind({ snap }: Props) {
       <SettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} title="Wind Settings">
         <WindSettings
           speedUnit={speedUnit}
+          markerStyle={markerStyle}
           fontScale={fontScale}
           onSpeedUnit={handleSpeedUnit}
+          onMarkerStyle={handleMarkerStyle}
           onFontScale={handleFontScale}
           onResetAll={handleResetAll}
         />
@@ -243,6 +293,7 @@ export function Wind({ snap }: Props) {
               relWindDeg={relWindDeg}
               carHeadingDeg={carHeadingDeg}
               markerColor={markerColor}
+              markerStyle={markerStyle}
             />
           </div>
         </div>
