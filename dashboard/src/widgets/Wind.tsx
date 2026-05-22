@@ -59,10 +59,10 @@ const COMPASS_TICKS = Array.from({ length: 8 }, (_, i) => {
 
 const LABEL_R = 55
 const COMPASS_LABELS = [
-  { label: 'N', deg: 0,   color: '#E8E8E8', fontSize: 7,   fontWeight: 600 },
-  { label: 'E', deg: 90,  color: '#9a9a9a', fontSize: 6,   fontWeight: 500 },
-  { label: 'S', deg: 180, color: '#9a9a9a', fontSize: 6,   fontWeight: 500 },
-  { label: 'W', deg: 270, color: '#9a9a9a', fontSize: 6,   fontWeight: 500 },
+  { label: 'N', deg: 0,   color: '#E8E8E8', fontSize: 9,   fontWeight: 600 },
+  { label: 'E', deg: 90,  color: '#9a9a9a', fontSize: 8,   fontWeight: 500 },
+  { label: 'S', deg: 180, color: '#9a9a9a', fontSize: 8,   fontWeight: 500 },
+  { label: 'W', deg: 270, color: '#9a9a9a', fontSize: 8,   fontWeight: 500 },
 ].map(l => ({
   ...l,
   x: Math.sin(l.deg * Math.PI / 180) * LABEL_R,
@@ -115,12 +115,13 @@ interface GaugeProps {
   carHeadingDeg: number
   markerColor: string
   markerStyle: MarkerStyle
+  fontScale: number
 }
 
-function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor, markerStyle }: GaugeProps) {
+function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor, markerStyle, fontScale }: GaugeProps) {
   return (
     <svg
-      viewBox="-62 -62 124 124"
+      viewBox="-57 -57 114 114"
       width="100%"
       height="100%"
       style={{ display: 'block', overflow: 'visible' }}
@@ -145,7 +146,7 @@ function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor, markerStyle
           <text key={l.label}
             x={l.x} y={l.y}
             fill={l.color}
-            fontSize={l.fontSize}
+            fontSize={l.fontSize * fontScale}
             fontWeight={l.fontWeight}
             textAnchor="middle"
             dominantBaseline="middle"
@@ -285,7 +286,7 @@ export function Wind({ snap }: Props) {
         />
       </SettingsDrawer>
 
-      <div className="card-body" style={{ padding: '0 4px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div className="card-body" style={{ padding: '0 2px 6px', display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div style={{ flex: '1 1 0', minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ width: '100%', maxWidth: '100%', maxHeight: '100%', aspectRatio: '1 / 1' }}>
             <WindGauge
@@ -294,6 +295,7 @@ export function Wind({ snap }: Props) {
               carHeadingDeg={carHeadingDeg}
               markerColor={markerColor}
               markerStyle={markerStyle}
+              fontScale={fontScale}
             />
           </div>
         </div>
