@@ -4,14 +4,12 @@ import type { TrackShape } from '@shared/TrackShape'
 import type { TrackCar } from '@shared/TrackCar'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
 import { SettingsDrawer } from '../components/SettingsDrawer'
-import { WindCompass, windCardinal } from '../components/WindCompass'
 import { TrackMapSettings } from './TrackMapSettings'
 
 interface Props {
   snap: TrackMapSnapshot | null
   playerCarIdx: number | null
   info: SessionInfoYaml | null
-  windDir: number | null
 }
 
 // ─── Settings persistence ─────────────────────────────────────────────────────
@@ -302,7 +300,7 @@ const RESAMPLE_N = 512
 
 // ─── Widget ───────────────────────────────────────────────────────────────────
 
-export function TrackMap({ snap, playerCarIdx, info, windDir }: Props) {
+export function TrackMap({ snap, playerCarIdx, info }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef   = useRef<number>(0)
   const dataRef   = useRef({ snap, playerCarIdx })
@@ -474,11 +472,6 @@ export function TrackMap({ snap, playerCarIdx, info, windDir }: Props) {
             style={{ position: 'absolute', top: 8, right: 8, zIndex: 2 }}
           >{mode3d ? '3D' : '2D'}</button>
           <TrackInfoOverlay info={info} fontSize={fontSize} />
-          {windDir != null && (
-            <div style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 2, pointerEvents: 'none', opacity: 0.85 }}>
-              <WindCompass windRad={windDir} size={44} title={`Wind from ${windCardinal(windDir)}`} />
-            </div>
-          )}
         </div>
       </div>
     </section>
