@@ -23,6 +23,7 @@ export interface LapHistoryResult {
 interface TrackerState {
   lastLapSeen: number
   lastSessionNum: number
+  lastSubSessionId: bigint | null
   lastRecordedTime: number      // lapLastTime of the most recently recorded lap — guards against stale values
   onPitAtLapStart: boolean      // was on pit road when the current lap began
   wasOnPitDuringLap: boolean    // was on pit road at any point during the current lap
@@ -37,6 +38,7 @@ export function useLapHistory(
   const state = useRef<TrackerState>({
     lastLapSeen: -1,
     lastSessionNum: -1,
+    lastSubSessionId: null,
     lastRecordedTime: 0,
     onPitAtLapStart: false,
     wasOnPitDuringLap: false,
@@ -48,7 +50,7 @@ export function useLapHistory(
     const s = state.current
     s.history = []
     s.lastLapSeen = snap ? snap.lap : -1
-    s.lastRecordedTime = 0
+    s.lastRecordedTime = snap ? snap.lapLastTime : 0
     s.onPitAtLapStart = snap ? snap.onPitRoad : false
     s.wasOnPitDuringLap = snap ? snap.onPitRoad : false
     s.incidentsAtLapStart = snap ? (snap.playerCarMyIncidentCount ?? 0) : null
@@ -57,15 +59,21 @@ export function useLapHistory(
   if (snap) {
     const s = state.current
 
-    // Session change → full reset
-    if (snap.sessionNum !== s.lastSessionNum) {
+    // Session change or new server (SubSessionID changes) → full reset
+    const subId = info?.WeekendInfo?.SubSessionID ?? null
+    const sessionChanged = snap.sessionNum !== s.lastSessionNum
+    const serverChanged = s.lastSubSessionId !== null && subId !== null && subId !== s.lastSubSessionId
+    if (sessionChanged || serverChanged) {
       s.lastLapSeen = snap.lap
       s.lastSessionNum = snap.sessionNum
-      s.lastRecordedTime = 0
+      s.lastSubSessionId = subId
+      s.lastRecordedTime = snap.lapLastTime
       s.onPitAtLapStart = snap.onPitRoad
       s.wasOnPitDuringLap = snap.onPitRoad
       s.incidentsAtLapStart = snap.playerCarMyIncidentCount ?? 0
       s.history = []
+    } else if (s.lastSubSessionId === null && subId !== null) {
+      s.lastSubSessionId = subId
     }
 
     // Accumulate pit-road status during the current lap
