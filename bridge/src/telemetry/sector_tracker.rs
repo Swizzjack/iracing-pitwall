@@ -33,6 +33,9 @@ pub struct PerCarSectors {
     pub last_sectors: Vec<f32>,
     /// Personal-best time per sector. None until that sector has been completed cleanly.
     pub personal_best: Vec<Option<f32>>,
+    /// Sector times completed so far in the current (still-running) lap.
+    /// Cleared on S/F crossing, lap invalidation, or session reset.
+    pub current_lap_sectors: Vec<f32>,
 }
 
 #[derive(Debug)]
@@ -70,6 +73,7 @@ impl CarState {
             output: PerCarSectors {
                 last_sectors: Vec::new(),
                 personal_best: vec![None; n_sectors],
+                current_lap_sectors: Vec::new(),
             },
         }
     }
@@ -87,6 +91,7 @@ impl CarState {
     /// Invalidate the current lap. `due_to_pit` records that a pit entry caused it.
     fn invalidate_lap(&mut self, due_to_pit: bool) {
         self.lap_valid = false;
+        self.output.current_lap_sectors.clear();
         if due_to_pit {
             self.pit_in_during_lap = true;
         }
@@ -225,6 +230,7 @@ impl SectorTracker {
 
                 // Start fresh lap.
                 state.reset_lap(t_sf, n + 1);
+                state.output.current_lap_sectors.clear();
                 state.last_p = p;
                 state.last_t = session_time;
                 continue;
@@ -249,6 +255,7 @@ impl SectorTracker {
                 let dur = (t_cross - state.sector_started_at) as f32;
                 if dur > 0.0 {
                     state.current_lap_sectors.push(dur);
+                    state.output.current_lap_sectors = state.current_lap_sectors.clone();
                 }
                 state.sector_started_at = t_cross;
                 state.sector_idx = si + 1;

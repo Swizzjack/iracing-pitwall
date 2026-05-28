@@ -17,7 +17,7 @@ export function LapHistorySettings({ sortOrder, fontScale, onSortOrder, onFontSc
     <>
       <div className="settings-drawer-footer">
         <div className="settings-section">
-          <div className="settings-section-title">Sortierung</div>
+          <div className="settings-section-title">Sort Order</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {(['newest', 'oldest', 'fastest'] as SortOrder[]).map(v => (
               <label key={v} style={radioLabel}>
@@ -28,7 +28,7 @@ export function LapHistorySettings({ sortOrder, fontScale, onSortOrder, onFontSc
                   checked={sortOrder === v}
                   onChange={() => onSortOrder(v)}
                 />
-                {v === 'newest' ? 'Neueste' : v === 'oldest' ? 'Älteste' : 'Schnellste'}
+                {v === 'newest' ? 'Newest' : v === 'oldest' ? 'Oldest' : 'Fastest'}
               </label>
             ))}
           </div>

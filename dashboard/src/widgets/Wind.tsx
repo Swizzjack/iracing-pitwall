@@ -155,16 +155,8 @@ function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor, markerStyle
         ))}
       </g>
 
-      {/* ── Car silhouette at 90%, nose = top = driving direction ─────── */}
-      <g transform="scale(0.9)">
-        <path d="M -3 -38 L 3 -38 L 11 -22 L 11 28 L -11 28 L -11 -22 Z" fill="#FFCC00" />
-        <rect x="-15" y="-24" width="5" height="12" rx="1.5" fill="#484848" />
-        <rect x="10"  y="-24" width="5" height="12" rx="1.5" fill="#484848" />
-        <rect x="-15" y="10"  width="5" height="15" rx="1.5" fill="#484848" />
-        <rect x="10"  y="10"  width="5" height="15" rx="1.5" fill="#484848" />
-        <ellipse cx="0" cy="-2" rx="4" ry="6" fill="#1a1a1a" />
-        <rect x="-18" y="30" width="36" height="5" rx="1.5" fill="#FFCC00" />
-      </g>
+      {/* ── Car image, nose = top = driving direction ─────────────────── */}
+      <image href="/car.png" x="-34" y="-34" width="68" height="68" preserveAspectRatio="xMidYMid meet" />
 
       {/* ── Wind marker: rotated by relWindDeg (car-relative)            */}
       {!isCalm && (

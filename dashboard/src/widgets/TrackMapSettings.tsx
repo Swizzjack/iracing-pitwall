@@ -4,6 +4,8 @@ interface Props {
   sfLength: number
   sectorShow: boolean
   sectorLength: number
+  sectorLiveColors: boolean
+  sectorFontSize: number
   fontSize: number
   tiltDeg: number
   zExag: number
@@ -12,6 +14,8 @@ interface Props {
   onSfLength: (v: number) => void
   onSectorShow: (v: boolean) => void
   onSectorLength: (v: number) => void
+  onSectorLiveColors: (v: boolean) => void
+  onSectorFontSize: (v: number) => void
   onFontSize: (v: number) => void
   onTiltDeg: (v: number) => void
   onZExag: (v: number) => void
@@ -19,8 +23,8 @@ interface Props {
 }
 
 export function TrackMapSettings({
-  trackWidth, carRadius, sfLength, sectorShow, sectorLength, fontSize, tiltDeg, zExag,
-  onTrackWidth, onCarRadius, onSfLength, onSectorShow, onSectorLength, onFontSize,
+  trackWidth, carRadius, sfLength, sectorShow, sectorLength, sectorLiveColors, sectorFontSize, fontSize, tiltDeg, zExag,
+  onTrackWidth, onCarRadius, onSfLength, onSectorShow, onSectorLength, onSectorLiveColors, onSectorFontSize, onFontSize,
   onTiltDeg, onZExag, onResetAll,
 }: Props) {
   return (
@@ -28,70 +32,84 @@ export function TrackMapSettings({
       <div className="settings-section">
         <div className="settings-section-title">Track</div>
         <div className="settings-footer-row">
-          <label>Width</label>
+          <label style={{ color: '#888', fontSize: 12 }}>Width</label>
           <input type="range" min={2} max={24} step={1} value={trackWidth}
             onChange={e => onTrackWidth(+e.target.value)} />
-          <span>{trackWidth}px</span>
+          <span style={{ color: '#888', fontSize: 12 }}>{trackWidth}px</span>
         </div>
         <div className="settings-footer-row">
-          <label>S/F line</label>
+          <label style={{ color: '#888', fontSize: 12 }}>S/F line</label>
           <input type="range" min={4} max={40} step={1} value={sfLength}
             onChange={e => onSfLength(+e.target.value)} />
-          <span>{sfLength}px</span>
+          <span style={{ color: '#888', fontSize: 12 }}>{sfLength}px</span>
         </div>
       </div>
 
       <div className="settings-section">
         <div className="settings-section-title">Cars</div>
         <div className="settings-footer-row">
-          <label>Dot size</label>
+          <label style={{ color: '#888', fontSize: 12 }}>Dot size</label>
           <input type="range" min={3} max={16} step={1} value={carRadius}
             onChange={e => onCarRadius(+e.target.value)} />
-          <span>{carRadius}px</span>
+          <span style={{ color: '#888', fontSize: 12 }}>{carRadius}px</span>
         </div>
       </div>
 
       <div className="settings-section">
         <div className="settings-section-title">Sectors</div>
-        <div className="settings-footer-row">
-          <label>Show</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <label className="toggle">
             <input type="checkbox" checked={sectorShow}
               onChange={e => onSectorShow(e.target.checked)} />
             <span className="toggle-track" />
           </label>
+          <span style={{ color: sectorShow ? '#ccc' : '#555', fontSize: 12 }}>Show sectors</span>
         </div>
         <div className="settings-footer-row">
-          <label>Line length</label>
+          <label style={{ color: '#888', fontSize: 12 }}>Line length</label>
           <input type="range" min={4} max={40} step={1} value={sectorLength}
             onChange={e => onSectorLength(+e.target.value)} />
-          <span>{sectorLength}px</span>
+          <span style={{ color: '#888', fontSize: 12 }}>{sectorLength}px</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label className="toggle">
+            <input type="checkbox" checked={sectorLiveColors}
+              onChange={e => onSectorLiveColors(e.target.checked)} />
+            <span className="toggle-track" />
+          </label>
+          <span style={{ color: sectorLiveColors ? '#ccc' : '#555', fontSize: 12 }}>Live performance colors</span>
+        </div>
+        <div className="settings-footer-row">
+          <label style={{ color: '#888', fontSize: 12 }}>Label size</label>
+          <input type="range" min={6} max={18} step={1} value={sectorFontSize}
+            onChange={e => onSectorFontSize(+e.target.value)} />
+          <span style={{ color: '#888', fontSize: 12 }}>{sectorFontSize}px</span>
         </div>
       </div>
 
       <div className="settings-section">
         <div className="settings-section-title">Info overlay</div>
         <div className="settings-footer-row">
-          <label>Font size</label>
+          <label style={{ color: '#888', fontSize: 12 }}>Font size</label>
           <input type="range" min={8} max={20} step={1} value={fontSize}
             onChange={e => onFontSize(+e.target.value)} />
-          <span>{fontSize}px</span>
+          <span style={{ color: '#888', fontSize: 12 }}>{fontSize}px</span>
         </div>
       </div>
 
       <div className="settings-section">
         <div className="settings-section-title">3D view</div>
         <div className="settings-footer-row">
-          <label>Tilt</label>
+          <label style={{ color: '#888', fontSize: 12 }}>Tilt</label>
           <input type="range" min={0} max={75} step={1} value={tiltDeg}
             onChange={e => onTiltDeg(+e.target.value)} />
-          <span>{tiltDeg}°</span>
+          <span style={{ color: '#888', fontSize: 12 }}>{tiltDeg}°</span>
         </div>
         <div className="settings-footer-row">
-          <label>Elevation</label>
+          <label style={{ color: '#888', fontSize: 12 }}>Elevation</label>
           <input type="range" min={1} max={50} step={1} value={zExag}
             onChange={e => onZExag(+e.target.value)} />
-          <span>{zExag}×</span>
+          <span style={{ color: '#888', fontSize: 12 }}>{zExag}×</span>
         </div>
       </div>
 

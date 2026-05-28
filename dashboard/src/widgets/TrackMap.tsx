@@ -3,6 +3,7 @@ import type { TrackMapSnapshot } from '@shared/TrackMapSnapshot'
 import type { TrackShape } from '@shared/TrackShape'
 import type { TrackCar } from '@shared/TrackCar'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
+import type { StandingsSnapshot } from '@shared/StandingsSnapshot'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { TrackMapSettings } from './TrackMapSettings'
 
@@ -10,6 +11,7 @@ interface Props {
   snap: TrackMapSnapshot | null
   playerCarIdx: number | null
   info: SessionInfoYaml | null
+  standings: StandingsSnapshot | null
 }
 
 // ─── Settings persistence ─────────────────────────────────────────────────────
@@ -19,7 +21,9 @@ const CAR_R_KEY       = 'iracing-trackmap-car-size'
 const SF_LEN_KEY      = 'iracing-trackmap-sf-length'
 const SECTOR_SHOW_KEY = 'iracing-trackmap-sector-show'
 const SECTOR_LEN_KEY  = 'iracing-trackmap-sector-length'
-const FONT_SIZE_KEY   = 'iracing-trackmap-font-size'
+const SECTOR_LIVE_KEY  = 'iracing-trackmap-sector-live'
+const SECTOR_FONT_KEY  = 'iracing-trackmap-sector-font'
+const FONT_SIZE_KEY    = 'iracing-trackmap-font-size'
 const MODE3D_KEY      = 'iracing-trackmap-mode3d'
 const TILT_KEY        = 'iracing-trackmap-tilt'
 const ZEXAG_KEY       = 'iracing-trackmap-zexag'
@@ -38,6 +42,8 @@ interface DrawSettings {
   sfLength: number
   sectorShow: boolean
   sectorLength: number
+  sectorLiveColors: boolean
+  sectorFontSize: number
   mode3d: boolean
   tiltDeg: number
   zExag: number
@@ -61,6 +67,44 @@ function lerpPct(a: number, b: number, t: number): number {
   return ((a + d * t) % 1 + 1) % 1
 }
 
+// ─── Sector color helpers ─────────────────────────────────────────────────────
+
+const SECTOR_GRAY_DARK  = '#444444'
+const SECTOR_GRAY_LIGHT = '#888888'
+const SECTOR_LABEL_GRAY = '#cccccc'
+
+function staticSectorColor(idx: number, _n: number): string {
+  return idx % 2 === 0 ? SECTOR_GRAY_DARK : SECTOR_GRAY_LIGHT
+}
+
+interface LiveSectorPalette {
+  currentLap: (number | null)[]
+  pb: (number | null)[]
+  sessionBest: (number | null)[]
+}
+
+function livePerfColor(idx: number, live: LiveSectorPalette): string | null {
+  const t = live.currentLap[idx]
+  if (t != null && t > 0) {
+    const sb = live.sessionBest[idx]
+    if (sb != null && t <= sb) return '#a855f7'
+    const pb = live.pb[idx]
+    if (pb != null && t <= pb) return '#22c55e'
+    if (sb != null || pb != null) return '#eab308'
+  }
+  return null
+}
+
+function sectorColorAt(idx: number, live: LiveSectorPalette | null, n: number): string {
+  if (live) { const c = livePerfColor(idx, live); if (c) return c }
+  return staticSectorColor(idx, n)
+}
+
+function sectorLabelColor(idx: number, live: LiveSectorPalette | null): string {
+  if (live) { const c = livePerfColor(idx, live); if (c) return c }
+  return SECTOR_LABEL_GRAY
+}
+
 // ─── Elevation color helper ───────────────────────────────────────────────────
 
 function elevColor(t: number): string {
@@ -77,7 +121,15 @@ interface SectorMarker {
   y: number
   nx: number
   ny: number
-  num: number  // sector number label (S2, S3, …)
+  num: number  // boundary number: 2 = start of S2, etc. — used for tick coloring
+}
+
+interface SectorLabel {
+  x: number
+  y: number
+  nx: number
+  ny: number
+  num: number  // 1-based: S1, S2, …
 }
 
 interface ShapeCache {
@@ -91,8 +143,13 @@ interface ShapeCache {
   startNormalX: number
   startNormalY: number
   sectorMarkers: SectorMarker[]
+  sectorLabels: SectorLabel[]
   toScreen: (x: number, y: number, z?: number) => [number, number]
   ptAtP: (p: number) => [number, number, number]  // [sx, sy, zWorld]
+  // 2D sector coloring — pre-projected screen coords and sector index per point
+  pts2d: [number, number][]
+  sectorIdxPerPoint: number[]
+  nSectors: number            // total sector count (n_sector_starts + 1)
   // 3D visual cues — empty/zero in 2D mode
   pts3d: [number, number][]  // pre-projected screen coords per track point
   shadowPath: Path2D          // track footprint at z=zMin
@@ -126,8 +183,12 @@ function buildShapeCache(
       startNormalX: 0,
       startNormalY: 1,
       sectorMarkers: [],
+      sectorLabels: [],
       toScreen: () => [w / 2, h / 2],
       ptAtP: () => [w / 2, h / 2, 0],
+      pts2d: [],
+      sectorIdxPerPoint: [],
+      nSectors: sectors.length + 1,
       pts3d: [],
       shadowPath: new Path2D(),
       segmentColors: [],
@@ -275,6 +336,17 @@ function buildShapeCache(
   const startNormalX = -dy / len
   const startNormalY =  dx / len
 
+  // Sector index per track point for 2D sector coloring.
+  const nSectors = sectors.length + 1
+  const sectorIdxPerPoint: number[] = pts.map(pt => {
+    const p = ((pt.p % 1) + 1) % 1
+    for (let k = 0; k < sectors.length; k++) {
+      if (p < sectors[k]) return k
+    }
+    return sectors.length
+  })
+  const pts2d = pts3d  // same projection; in 2D mode sinT=0 so z has no effect
+
   // Build sector markers using the same tangent-normal technique.
   const EPS = 1 / RESAMPLE_N
   const sectorMarkers: SectorMarker[] = sectors.map((p, i) => {
@@ -287,11 +359,24 @@ function buildShapeCache(
     return { x: mx, y: my, nx: -sdy / slen, ny: sdx / slen, num: i + 2 }
   })
 
+  const bounds = [0, ...sectors, 1]
+  const sectorLabels: SectorLabel[] = []
+  for (let k = 0; k < nSectors; k++) {
+    const mid = (bounds[k] + bounds[k + 1]) / 2
+    const [mx, my] = ptAtP(mid)
+    const [pax, pay] = ptAtP(mid - EPS)
+    const [pbx, pby] = ptAtP(mid + EPS)
+    const sdx = pbx - pax, sdy = pby - pay
+    const slen = Math.hypot(sdx, sdy) || 1
+    sectorLabels.push({ x: mx, y: my, nx: -sdy / slen, ny: sdx / slen, num: k + 1 })
+  }
+
   return {
     key, w, h,
     outerPath: outer, innerPath: inner,
     startX, startY, startNormalX, startNormalY,
-    sectorMarkers, toScreen, ptAtP,
+    sectorMarkers, sectorLabels, toScreen, ptAtP,
+    pts2d, sectorIdxPerPoint, nSectors,
     pts3d, shadowPath, segmentColors, gridSegs, zMin, zExagFactor,
   }
 }
@@ -300,10 +385,10 @@ const RESAMPLE_N = 512
 
 // ─── Widget ───────────────────────────────────────────────────────────────────
 
-export function TrackMap({ snap, playerCarIdx, info }: Props) {
+export function TrackMap({ snap, playerCarIdx, info, standings }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef   = useRef<number>(0)
-  const dataRef   = useRef({ snap, playerCarIdx })
+  const dataRef   = useRef({ snap, playerCarIdx, standings })
   const cacheRef  = useRef<ShapeCache | null>(null)
   const interpRef = useRef<{
     prevSnap: TrackMapSnapshot | null
@@ -319,6 +404,10 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
     try { return localStorage.getItem(SECTOR_SHOW_KEY) !== 'false' } catch { return true }
   })
   const [sectorLength, setSectorLength] = useState(() => loadNum(SECTOR_LEN_KEY, 12, 4, 40))
+  const [sectorLiveColors, setSectorLiveColors] = useState(() => {
+    try { return localStorage.getItem(SECTOR_LIVE_KEY) === 'true' } catch { return false }
+  })
+  const [sectorFontSize, setSectorFontSize] = useState(() => loadNum(SECTOR_FONT_KEY, 9, 6, 18))
   const [fontSize,     setFontSize]     = useState(() => loadNum(FONT_SIZE_KEY, 12, 8, 20))
   const [mode3d,       setMode3d]       = useState(() => {
     try { return localStorage.getItem(MODE3D_KEY) === 'true' } catch { return false }
@@ -327,8 +416,8 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
   const [zExag,        setZExag]        = useState(() => loadNum(ZEXAG_KEY, 10, 1, 50))
   const [showSettings, setShowSettings] = useState(false)
 
-  const settingsRef = useRef<DrawSettings>({ trackWidth, carRadius, sfLength, sectorShow, sectorLength, mode3d, tiltDeg, zExag })
-  settingsRef.current = { trackWidth, carRadius, sfLength, sectorShow, sectorLength, mode3d, tiltDeg, zExag }
+  const settingsRef = useRef<DrawSettings>({ trackWidth, carRadius, sfLength, sectorShow, sectorLength, sectorLiveColors, sectorFontSize, mode3d, tiltDeg, zExag })
+  settingsRef.current = { trackWidth, carRadius, sfLength, sectorShow, sectorLength, sectorLiveColors, sectorFontSize, mode3d, tiltDeg, zExag }
 
   // Keep latest props accessible in the rAF loop without re-scheduling.
   // Detect new snapshots (reference change) and update interpolation state.
@@ -338,7 +427,7 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
     interpRef.current.currSnap = snap
     interpRef.current.currTs   = performance.now()
   }
-  dataRef.current = { snap, playerCarIdx }
+  dataRef.current = { snap, playerCarIdx, standings }
 
   useEffect(() => {
     function draw() {
@@ -359,7 +448,7 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
       ctx.fillStyle = '#0a0a0a'
       ctx.fillRect(0, 0, w, h)
 
-      const { snap, playerCarIdx } = dataRef.current
+      const { snap, playerCarIdx, standings } = dataRef.current
       const settings = settingsRef.current
 
       if (!snap) {
@@ -395,8 +484,20 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
       }
       const cache = cacheRef.current
 
-      drawTrackShape(ctx, cache, settings)
-      drawCars(ctx, cache, cars, prevCars, t, playerCarIdx ?? snap.playerCarIdx, settings)
+      const ownIdx = playerCarIdx ?? snap.playerCarIdx
+      let livePalette: LiveSectorPalette | null = null
+      if (settings.sectorLiveColors && standings) {
+        const entry = standings.entries.find(e => e.carIdx === ownIdx)
+        if (entry) {
+          livePalette = {
+            currentLap: entry.currentLapSectors,
+            pb: entry.bestSectorTimes,
+            sessionBest: standings.sessionBestSectors,
+          }
+        }
+      }
+      drawTrackShape(ctx, cache, settings, livePalette)
+      drawCars(ctx, cache, cars, prevCars, t, ownIdx, settings)
 
       animRef.current = requestAnimationFrame(draw)
     }
@@ -410,14 +511,16 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
   }
 
   function handleResetAll() {
-    setTrackWidth(8);    persist(TRACK_W_KEY, 8)
-    setCarRadius(7);     persist(CAR_R_KEY, 7)
-    setSfLength(12);     persist(SF_LEN_KEY, 12)
-    setSectorShow(true); persist(SECTOR_SHOW_KEY, true)
-    setSectorLength(12); persist(SECTOR_LEN_KEY, 12)
-    setFontSize(12);     persist(FONT_SIZE_KEY, 12)
-    setTiltDeg(45);      persist(TILT_KEY, 45)
-    setZExag(10);        persist(ZEXAG_KEY, 10)
+    setTrackWidth(8);          persist(TRACK_W_KEY, 8)
+    setCarRadius(7);           persist(CAR_R_KEY, 7)
+    setSfLength(12);           persist(SF_LEN_KEY, 12)
+    setSectorShow(true);       persist(SECTOR_SHOW_KEY, true)
+    setSectorLength(12);       persist(SECTOR_LEN_KEY, 12)
+    setSectorLiveColors(false); persist(SECTOR_LIVE_KEY, false)
+    setSectorFontSize(9);       persist(SECTOR_FONT_KEY, 9)
+    setFontSize(12);           persist(FONT_SIZE_KEY, 12)
+    setTiltDeg(45);            persist(TILT_KEY, 45)
+    setZExag(10);              persist(ZEXAG_KEY, 10)
   }
 
   return (
@@ -446,6 +549,8 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
             sfLength={sfLength}
             sectorShow={sectorShow}
             sectorLength={sectorLength}
+            sectorLiveColors={sectorLiveColors}
+            sectorFontSize={sectorFontSize}
             fontSize={fontSize}
             tiltDeg={tiltDeg}
             zExag={zExag}
@@ -454,6 +559,8 @@ export function TrackMap({ snap, playerCarIdx, info }: Props) {
             onSfLength={v => { setSfLength(v); persist(SF_LEN_KEY, v) }}
             onSectorShow={v => { setSectorShow(v); persist(SECTOR_SHOW_KEY, v) }}
             onSectorLength={v => { setSectorLength(v); persist(SECTOR_LEN_KEY, v) }}
+            onSectorLiveColors={v => { setSectorLiveColors(v); persist(SECTOR_LIVE_KEY, v) }}
+            onSectorFontSize={v => { setSectorFontSize(v); persist(SECTOR_FONT_KEY, v) }}
             onFontSize={v => { setFontSize(v); persist(FONT_SIZE_KEY, v) }}
             onTiltDeg={v => { setTiltDeg(v); persist(TILT_KEY, v) }}
             onZExag={v => { setZExag(v); persist(ZEXAG_KEY, v) }}
@@ -492,7 +599,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, w: number, h: number, text: 
   ctx.restore()
 }
 
-function drawTrackShape(ctx: CanvasRenderingContext2D, cache: ShapeCache, s: DrawSettings) {
+function drawTrackShape(ctx: CanvasRenderingContext2D, cache: ShapeCache, s: DrawSettings, live: LiveSectorPalette | null) {
   if (s.mode3d && cache.segmentColors.length > 0) {
     // ── 3D mode ──────────────────────────────────────────────────────────────
     // 0. Ground grid on z=zMin with radial fade.
@@ -536,16 +643,30 @@ function drawTrackShape(ctx: CanvasRenderingContext2D, cache: ShapeCache, s: Dra
     }
     ctx.restore()
   } else {
-    // ── 2D mode: fast Path2D ─────────────────────────────────────────────────
-    // Outer asphalt strip.
-    ctx.strokeStyle = '#2a2a2a'
-    ctx.lineWidth = s.trackWidth
+    // ── 2D mode: sector-colored track, segment by segment ────────────────────
+    ctx.save()
     ctx.lineJoin = 'round'
-    ctx.stroke(cache.outerPath)
+    ctx.lineCap = 'round'
+    ctx.lineWidth = s.trackWidth
+    const pd = cache.pts2d
+    const si = cache.sectorIdxPerPoint
+    const ns = cache.nSectors
+    const np = pd.length
+    const activeLive = s.sectorLiveColors ? live : null
+    for (let i = 0; i < np; i++) {
+      const j = (i + 1) % np
+      ctx.strokeStyle = sectorColorAt(si[i], activeLive, ns)
+      ctx.beginPath()
+      ctx.moveTo(pd[i][0], pd[i][1])
+      ctx.lineTo(pd[j][0], pd[j][1])
+      ctx.stroke()
+    }
+    ctx.restore()
 
-    // Centre line — proportional to track width.
+    // Centre line — proportional to track width, drawn on top.
     ctx.strokeStyle = '#3a3a3a'
     ctx.lineWidth = Math.max(1, s.trackWidth * 0.25)
+    ctx.lineJoin = 'round'
     ctx.stroke(cache.innerPath)
   }
 
@@ -570,26 +691,27 @@ function drawTrackShape(ctx: CanvasRenderingContext2D, cache: ShapeCache, s: Dra
   ctx.stroke()
   ctx.restore()
 
-  // Sector lines (yellow, perpendicular at each SectorStartPct).
+  // Sector tick lines at boundaries, labels at sector midpoints.
   if (s.sectorShow && cache.sectorMarkers.length > 0) {
     const sh = s.sectorLength / 2
+    const activeLive = s.sectorLiveColors ? live : null
     ctx.save()
     ctx.lineCap = 'butt'
     ctx.lineWidth = 2
-    ctx.strokeStyle = '#facc15'
-    ctx.fillStyle = '#facc15'
-    ctx.font = `bold ${Math.max(8, sh * 0.7)}px system-ui, sans-serif`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
     for (const m of cache.sectorMarkers) {
+      ctx.strokeStyle = sectorColorAt(m.num - 1, activeLive, cache.nSectors)
       ctx.beginPath()
       ctx.moveTo(m.x - m.nx * sh, m.y - m.ny * sh)
       ctx.lineTo(m.x + m.nx * sh, m.y + m.ny * sh)
       ctx.stroke()
-      // Label at the +normal end.
-      const lx = m.x + m.nx * (sh + 6)
-      const ly = m.y + m.ny * (sh + 6)
-      ctx.fillText(`S${m.num}`, lx, ly)
+    }
+    ctx.font = `bold ${s.sectorFontSize}px system-ui, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const off = s.trackWidth / 2 + 12
+    for (const m of cache.sectorLabels) {
+      ctx.fillStyle = sectorLabelColor(m.num - 1, activeLive)
+      ctx.fillText(`S${m.num}`, m.x + m.nx * off, m.y + m.ny * off)
     }
     ctx.restore()
   }

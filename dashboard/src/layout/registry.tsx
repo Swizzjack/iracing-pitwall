@@ -50,7 +50,7 @@ export const REGISTRY: WidgetDef[] = [
   {
     id: 'trackMap',
     title: 'Track Map',
-    render: (d) => <TrackMap snap={d.trackMap} playerCarIdx={d.tel?.playerCarIdx ?? null} info={d.info} />,
+    render: (d) => <TrackMap snap={d.trackMap} playerCarIdx={d.tel?.playerCarIdx ?? null} info={d.info} standings={d.standings} />,
     default: { w: 6, h: 12, minW: 3, minH: 3 },
   },
   {

@@ -706,6 +706,10 @@ details ul {
   font-variant-numeric: tabular-nums;
 }
 
+.settings-footer-row .toggle {
+  margin-left: auto;
+}
+
 .settings-btn {
   background: #222;
   border: 1px solid #333;

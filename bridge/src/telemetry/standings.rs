@@ -57,6 +57,8 @@ pub struct StandingEntry {
     pub last_sector_times: Vec<f32>,
     /// Personal-best sector time per sector. None until that sector has been completed cleanly.
     pub best_sector_times: Vec<Option<f32>>,
+    /// Sector times completed so far in the current (still-running) lap.
+    pub current_lap_sectors: Vec<f32>,
     /// True once the car has crossed the S/F line under the checkered flag.
     pub finished: bool,
 }
@@ -233,6 +235,7 @@ impl StandingsSnapshot {
                     current_pit_road_sec: pit.and_then(|p| p.current_pit_road_sec),
                     last_sector_times: sectors.map(|s| s.last_sectors.clone()).unwrap_or_default(),
                     best_sector_times: sectors.map(|s| s.personal_best.clone()).unwrap_or_default(),
+                    current_lap_sectors: sectors.map(|s| s.current_lap_sectors.clone()).unwrap_or_default(),
                     finished: false,
                 };
 
