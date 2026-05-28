@@ -91,7 +91,7 @@ export function WeatherSettings({
     }
   }
 
-  const radioLabel: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: '#ccc', fontSize: 12 }
+  const radioLabel: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: '#ccc', fontSize: 'var(--settings-fs)' }
 
   return (
     <>
@@ -109,7 +109,7 @@ export function WeatherSettings({
         <div className="settings-section">
           <div className="settings-section-title">Display</div>
           <div className="settings-footer-row">
-            <label style={{ color: '#888', fontSize: 12 }}>Font size</label>
+            <label style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>Font size</label>
             <input
               type="range"
               min={0.7}
@@ -118,13 +118,13 @@ export function WeatherSettings({
               value={fontScale}
               onChange={e => onFontScale(parseFloat(e.target.value))}
             />
-            <span style={{ color: '#888', fontSize: 12 }}>{Math.round(fontScale * 100)}%</span>
+            <span style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>{Math.round(fontScale * 100)}%</span>
           </div>
         </div>
         <div className="settings-section">
           <div className="settings-section-title">Units</div>
           <div className="settings-footer-row">
-            <label style={{ color: '#888', fontSize: 12 }}>Temperature</label>
+            <label style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>Temperature</label>
             <div style={{ display: 'flex', gap: 12, marginLeft: 'auto' }}>
               <label style={radioLabel}>
                 <input type="radio" name="wtemp" value="C" checked={tempUnit === 'C'} onChange={() => onTempUnit('C')} /> °C
@@ -135,7 +135,7 @@ export function WeatherSettings({
             </div>
           </div>
           <div className="settings-footer-row">
-            <label style={{ color: '#888', fontSize: 12 }}>Wind speed</label>
+            <label style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>Wind speed</label>
             <div style={{ display: 'flex', gap: 12, marginLeft: 'auto' }}>
               <label style={radioLabel}>
                 <input type="radio" name="wspeed" value="kmh" checked={speedUnit === 'kmh'} onChange={() => onSpeedUnit('kmh')} /> km/h

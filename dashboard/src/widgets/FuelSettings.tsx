@@ -102,7 +102,7 @@ export function FuelSettings({
 
   const radioLabel: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 5,
-    cursor: 'pointer', color: '#ccc', fontSize: 12,
+    cursor: 'pointer', color: '#ccc', fontSize: 'var(--settings-fs)',
   }
 
   return (
@@ -121,7 +121,7 @@ export function FuelSettings({
         <div className="settings-section">
           <div className="settings-section-title">Lap Window</div>
           <div className="settings-footer-row">
-            <label style={{ color: '#888', fontSize: 12 }}>Avg over</label>
+            <label style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>Avg over</label>
             <div style={{ display: 'flex', gap: 12, marginLeft: 'auto' }}>
               {([3, 5, 'all'] as LapWindow[]).map(w => (
                 <label key={String(w)} style={radioLabel}>
@@ -139,7 +139,7 @@ export function FuelSettings({
         <div className="settings-section">
           <div className="settings-section-title">Reserve</div>
           <div className="settings-footer-row">
-            <label style={{ color: '#888', fontSize: 12 }}>Amount</label>
+            <label style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>Amount</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
               <input
                 type="number"
@@ -148,7 +148,7 @@ export function FuelSettings({
                 onChange={e => onReserveValue(Math.max(0, parseFloat(e.target.value) || 0))}
                 style={{
                   width: 52, background: '#111', border: '1px solid #333',
-                  color: '#ccc', borderRadius: 4, padding: '2px 6px', fontSize: 12,
+                  color: '#ccc', borderRadius: 4, padding: '2px 6px', fontSize: 'var(--settings-fs)',
                 }}
               />
               <div style={{ display: 'flex', gap: 8 }}>
@@ -169,13 +169,13 @@ export function FuelSettings({
         <div className="settings-section">
           <div className="settings-section-title">Display</div>
           <div className="settings-footer-row">
-            <label style={{ color: '#888', fontSize: 12 }}>Font size</label>
+            <label style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>Font size</label>
             <input
               type="range" min={0.7} max={2.0} step={0.05}
               value={fontScale}
               onChange={e => onFontScale(parseFloat(e.target.value))}
             />
-            <span style={{ color: '#888', fontSize: 12 }}>{Math.round(fontScale * 100)}%</span>
+            <span style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>{Math.round(fontScale * 100)}%</span>
           </div>
         </div>
 

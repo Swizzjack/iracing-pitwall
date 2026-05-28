@@ -162,41 +162,41 @@ function App() {
           <button
             className={`fs-btn${showGlobalSettings ? ' header-btn-active' : ''}`}
             onClick={() => setShowGlobalSettings(v => !v)}
-            title="UI-Einstellungen"
+            title="UI Settings"
           >⚙</button>
         </div>
       </header>
       <SettingsDrawer
         open={showGlobalSettings}
         onClose={() => setShowGlobalSettings(false)}
-        title="UI-Einstellungen"
+        title="UI Settings"
         variant="global"
       >
         <div className="settings-drawer-footer">
           <div className="settings-section">
-            <div className="settings-section-title">UI-Skalierung</div>
+            <div className="settings-section-title">UI Scale</div>
             <div className="settings-footer-row">
-              <label style={{ color: '#888', fontSize: 12 }}>Größe</label>
+              <label style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>Size</label>
               <input
                 type="range" min={0.8} max={2.0} step={0.05}
                 value={uiScale}
                 onChange={e => setUiScale(parseFloat(e.target.value))}
                 style={{ flex: 1 }}
               />
-              <span style={{ color: '#888', fontSize: 12, minWidth: 36, textAlign: 'right' }}>
+              <span style={{ color: '#888', fontSize: 'var(--settings-fs)', minWidth: 36, textAlign: 'right' }}>
                 {Math.round(uiScale * 100)}%
               </span>
             </div>
-            <div style={{ color: '#555', fontSize: 11, marginTop: 8, lineHeight: 1.4 }}>
-              Skaliert Header, Buttons und Widget-Inhalte global.
-              Multipliziert mit den Per-Widget-Reglern.
+            <div style={{ color: '#555', fontSize: 'calc(11px * var(--ui-scale, 1))', marginTop: 8, lineHeight: 1.4 }}>
+              Scales header, buttons and widget contents globally.
+              Multiplied with per-widget scale sliders.
             </div>
             {uiScale !== 1.0 && (
               <button
                 className="header-btn header-btn-danger"
                 style={{ marginTop: 10, width: '100%' }}
                 onClick={() => setUiScale(1.0)}
-              >Zurücksetzen (100%)</button>
+              >Reset (100%)</button>
             )}
           </div>
         </div>

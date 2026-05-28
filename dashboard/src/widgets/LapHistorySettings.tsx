@@ -2,7 +2,7 @@ export type SortOrder = 'newest' | 'oldest' | 'fastest'
 
 const radioLabel: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6,
-  color: '#ccc', fontSize: 12, cursor: 'pointer',
+  color: '#ccc', fontSize: 'var(--settings-fs)', cursor: 'pointer',
 }
 
 interface Props {
@@ -37,13 +37,13 @@ export function LapHistorySettings({ sortOrder, fontScale, onSortOrder, onFontSc
         <div className="settings-section">
           <div className="settings-section-title">Display</div>
           <div className="settings-footer-row">
-            <label style={{ color: '#888', fontSize: 12 }}>Font size</label>
+            <label style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>Font size</label>
             <input
               type="range" min={0.7} max={2.0} step={0.05}
               value={fontScale}
               onChange={e => onFontScale(parseFloat(e.target.value))}
             />
-            <span style={{ color: '#888', fontSize: 12 }}>{Math.round(fontScale * 100)}%</span>
+            <span style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>{Math.round(fontScale * 100)}%</span>
           </div>
         </div>
       </div>

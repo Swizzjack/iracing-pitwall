@@ -51,7 +51,7 @@ function SortableRow({ id, visible, width, onToggle, onResetWidth }: RowProps) {
       {width != null ? (
         <button className="settings-btn" onClick={onResetWidth} title="Reset width">↺ {width}px</button>
       ) : (
-        <span style={{ fontSize: 10, color: '#444' }}>auto</span>
+        <span style={{ fontSize: 'var(--settings-fs-sm)', color: '#444' }}>auto</span>
       )}
     </div>
   )

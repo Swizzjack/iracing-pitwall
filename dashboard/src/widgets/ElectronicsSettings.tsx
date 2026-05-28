@@ -140,7 +140,7 @@ export function ElectronicsSettings({
               key={s.id}
               onClick={() => onStyleChange(s.id)}
               className={`settings-btn${style === s.id ? ' settings-btn-active' : ''}`}
-              style={{ flex: 1, fontSize: 12 }}
+              style={{ flex: 1, fontSize: 'var(--settings-fs)' }}
             >
               {s.label}
             </button>
@@ -155,7 +155,7 @@ export function ElectronicsSettings({
             <div key={group}>
               <div style={{
                 padding: '6px 14px 2px',
-                fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+                fontSize: 'var(--settings-fs-sm)', fontWeight: 600, textTransform: 'uppercase',
                 letterSpacing: '0.08em', color: '#444',
               }}>{label}</div>
               <div className="settings-col-list" style={{ paddingTop: 0 }}>
@@ -172,13 +172,13 @@ export function ElectronicsSettings({
         <div className="settings-section">
           <div className="settings-section-title">Display</div>
           <div className="settings-footer-row">
-            <label style={{ color: '#888', fontSize: 12 }}>Font size</label>
+            <label style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>Font size</label>
             <input
               type="range" min={0.7} max={2.0} step={0.05}
               value={fontScale}
               onChange={e => onFontScale(parseFloat(e.target.value))}
             />
-            <span style={{ color: '#888', fontSize: 12 }}>{Math.round(fontScale * 100)}%</span>
+            <span style={{ color: '#888', fontSize: 'var(--settings-fs)' }}>{Math.round(fontScale * 100)}%</span>
           </div>
         </div>
         <div className="settings-footer-btns">
