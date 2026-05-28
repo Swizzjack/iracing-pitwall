@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
+import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import {
   WindSettings,
@@ -116,9 +117,10 @@ interface GaugeProps {
   markerColor: string
   markerStyle: MarkerStyle
   fontScale: number
+  carImage: string
 }
 
-function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor, markerStyle, fontScale }: GaugeProps) {
+function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor, markerStyle, fontScale, carImage }: GaugeProps) {
   return (
     <svg
       viewBox="-57 -57 114 114"
@@ -156,7 +158,7 @@ function WindGauge({ isCalm, relWindDeg, carHeadingDeg, markerColor, markerStyle
       </g>
 
       {/* ── Car image, nose = top = driving direction ─────────────────── */}
-      <image href="/car.png" x="-34" y="-34" width="68" height="68" preserveAspectRatio="xMidYMid meet" />
+      <image href={carImage} x="-34" y="-34" width="68" height="68" preserveAspectRatio="xMidYMid meet" />
 
       {/* ── Wind marker: rotated by relWindDeg (car-relative)            */}
       {!isCalm && (
@@ -205,9 +207,10 @@ function save(key: string, value: string) {
 
 interface Props {
   snap: TelemetrySnapshot | null
+  info?: SessionInfoYaml | null
 }
 
-export function Wind({ snap }: Props) {
+export function Wind({ snap, info }: Props) {
   const [showSettings,  setShowSettings]  = useState(false)
   const [speedUnit,     setSpeedUnit]     = useState<SpeedUnit>(() => loadSettings().speedUnit)
   const [markerStyle,   setMarkerStyle]   = useState<MarkerStyle>(() => loadSettings().markerStyle)
@@ -236,6 +239,10 @@ export function Wind({ snap }: Props) {
       </section>
     )
   }
+
+  const playerDriver = info?.DriverInfo?.Drivers.find(d => d.CarIdx === snap.playerCarIdx) ?? null
+  const carPath = playerDriver?.CarPath ?? ''
+  const carImage = /dallara|formula|skipbarber|usf|indy/i.test(carPath) ? '/carf.png' : '/car.png'
 
   const { windVel, windDir, yawNorth, yaw } = snap
   const carHeadingRad = yawNorth ?? yaw
@@ -288,12 +295,13 @@ export function Wind({ snap }: Props) {
               markerColor={markerColor}
               markerStyle={markerStyle}
               fontScale={fontScale}
+              carImage={carImage}
             />
           </div>
         </div>
 
         {/* Speed display below compass */}
-        <div style={{ flexShrink: 0, textAlign: 'center', lineHeight: 1 }}>
+        <div style={{ flexShrink: 0, textAlign: 'right', lineHeight: 1, paddingRight: 4 }}>
           {isCalm ? (
             <span style={{
               color: '#5BC9FF',

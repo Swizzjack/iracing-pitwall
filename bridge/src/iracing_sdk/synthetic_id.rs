@@ -101,6 +101,7 @@ mod tests {
             track_altitude: None,
             track_num_turns: None,
             track_pit_speed_limit: None,
+            category: None,
         }
     }
 

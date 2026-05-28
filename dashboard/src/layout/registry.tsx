@@ -86,7 +86,7 @@ export const REGISTRY: WidgetDef[] = [
   {
     id: 'wind',
     title: 'Wind',
-    render: (d) => <Wind snap={d.tel} />,
+    render: (d) => <Wind snap={d.tel} info={d.info} />,
     default: { w: 4, h: 8, minW: 2, minH: 5 },
   },
 ]

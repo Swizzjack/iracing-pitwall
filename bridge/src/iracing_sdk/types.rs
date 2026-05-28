@@ -106,6 +106,8 @@ pub struct WeekendInfo {
     pub track_num_turns: Option<i32>,
     #[serde(rename = "TrackPitSpeedLimit", default)]
     pub track_pit_speed_limit: Option<String>,
+    #[serde(rename = "Category", default)]
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -171,6 +173,8 @@ pub struct DriverEntry {
     pub car_class_short_name: Option<String>,
     #[serde(rename = "CarClassColor", default, deserialize_with = "deserialize_color")]
     pub car_class_color: Option<i64>,
+    #[serde(rename = "CarPath", default)]
+    pub car_path: Option<String>,
     #[serde(rename = "CarScreenNameShort", default)]
     pub car_screen_name_short: Option<String>,
     #[serde(rename = "IRating", default)]
