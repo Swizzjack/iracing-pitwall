@@ -20,11 +20,18 @@ awk -v new="$NEW_VER" '
 
 echo "→ Version bumped: $CUR_VER → $NEW_VER"
 
-# ── 2) Dashboard build ─────────────────────────────────────────────────────────
+# ── 2) Generate shared TypeScript types (ts-rs, must run before dashboard build) ──
+echo "→ Generating shared TypeScript types (cargo test)…"
+( cd "$ROOT/bridge" && \
+  CARGO_HOME=/work/.cache/cargo \
+  RUSTUP_HOME=/work/.cache/rustup-overlay \
+  cargo test )
+
+# ── 3) Dashboard build ─────────────────────────────────────────────────────────
 echo "→ Building dashboard…"
 ( cd "$ROOT/dashboard" && npm run build )
 
-# ── 3) Bridge build (Windows cross-compile, MSVC target) ──────────────────────
+# ── 4) Bridge build (Windows cross-compile, MSVC target) ──────────────────────
 echo "→ Building bridge (iracing-pitwall.exe)…"
 ( cd "$ROOT/bridge" && \
   PATH="/work/.local/bin:$PATH" \
@@ -34,7 +41,7 @@ echo "→ Building bridge (iracing-pitwall.exe)…"
   RUSTFLAGS="--sysroot /work/.cache/rustup-overlay/toolchains/stable-x86_64-unknown-linux-gnu" \
   cargo xwin build --release --target x86_64-pc-windows-msvc )
 
-# ── 4) Ins dist-Verzeichnis kopieren ──────────────────────────────────────────
+# ── 5) Ins dist-Verzeichnis kopieren ──────────────────────────────────────────
 mkdir -p "$ROOT/dist"
 rm -f "$ROOT/dist/bridge.exe"
 cp "$ROOT/bridge/target/x86_64-pc-windows-msvc/release/iracing-pitwall.exe" \
