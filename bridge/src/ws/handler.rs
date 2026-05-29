@@ -24,6 +24,7 @@ use tokio::sync::{oneshot, watch};
 use crate::error::{BridgeError, Result};
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
+use crate::update::UpdateInfo;
 use crate::ws::lifecycle::ClientTracker;
 use crate::ws::protocol::ServerMessage;
 
@@ -37,6 +38,7 @@ pub struct BridgeState {
     pub standings: watch::Receiver<Option<StandingsSnapshot>>,
     pub session_info: watch::Receiver<Option<SessionInfoYaml>>,
     pub track_map: watch::Receiver<Option<TrackMapSnapshot>>,
+    pub update: watch::Receiver<Option<UpdateInfo>>,
     pub clients: ClientTracker,
     pub lan_url: Option<String>,
 }
@@ -101,12 +103,14 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
     let mut std_rx = state.standings;
     let mut si_rx = state.session_info;
     let mut tm_rx = state.track_map;
+    let mut upd_rx = state.update;
 
     // Initial replay — clone immediately so the watch::Ref guard drops before any await.
     let init_tel = tel_rx.borrow_and_update().clone();
     let init_std = std_rx.borrow_and_update().clone();
     let init_si = si_rx.borrow_and_update().clone();
     let init_tm = tm_rx.borrow_and_update().clone();
+    let init_upd = upd_rx.borrow_and_update().clone();
 
     if let Some(s) = init_tel {
         send_msg(&mut sink, &ServerMessage::Telemetry { snapshot: s }).await?;
@@ -119,6 +123,12 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
     }
     if let Some(s) = init_tm {
         send_msg(&mut sink, &ServerMessage::TrackMap { snapshot: s }).await?;
+    }
+    if let Some(u) = init_upd {
+        send_msg(&mut sink, &ServerMessage::UpdateAvailable {
+            latest_version: u.latest_version,
+            release_url: u.release_url,
+        }).await?;
     }
 
     loop {
@@ -155,6 +165,16 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
                 let snap = tm_rx.borrow_and_update().clone();
                 if let Some(s) = snap {
                     send_msg(&mut sink, &ServerMessage::TrackMap { snapshot: s }).await?;
+                }
+            }
+            r = upd_rx.changed() => {
+                r.map_err(|_| BridgeError::WebSocket("update channel closed".into()))?;
+                let upd = upd_rx.borrow_and_update().clone();
+                if let Some(u) = upd {
+                    send_msg(&mut sink, &ServerMessage::UpdateAvailable {
+                        latest_version: u.latest_version,
+                        release_url: u.release_url,
+                    }).await?;
                 }
             }
         }

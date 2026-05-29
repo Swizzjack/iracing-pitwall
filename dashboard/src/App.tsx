@@ -28,6 +28,7 @@ function App() {
   const [conn, setConn] = useState<ConnectionState>('closed')
   const [bridgeVersion, setBridgeVersion] = useState<string | null>(null)
   const [lanUrl, setLanUrl] = useState<string | null>(null)
+  const [availableUpdate, setAvailableUpdate] = useState<{ latestVersion: string; releaseUrl: string } | null>(null)
   const [tel, setTel] = useState<TelemetrySnapshot | null>(null)
   const [standings, setStandings] = useState<StandingsSnapshot | null>(null)
   const [info, setInfo] = useState<SessionInfoYaml | null>(null)
@@ -89,6 +90,9 @@ function App() {
         case 'trackMap':
           setTrackMap(msg.snapshot)
           break
+        case 'updateAvailable':
+          setAvailableUpdate({ latestVersion: msg.latestVersion, releaseUrl: msg.releaseUrl })
+          break
         case 'sdkStatus':
         case 'disconnected':
           break
@@ -143,6 +147,14 @@ function App() {
             <span className="dot" />
             {conn}
             {bridgeVersion && <span className="ver">v{bridgeVersion}</span>}
+            {availableUpdate && (
+              <span
+                className="update-pill"
+                title={`v${availableUpdate.latestVersion} available — open ⚙ Settings to download`}
+              >
+                ⬆ update
+              </span>
+            )}
           </div>
           {lanUrl && (
             <a className="lan-url" href={lanUrl} target="_blank" rel="noreferrer" title="LAN-Adresse — auf anderen Geräten öffnen">
@@ -173,6 +185,32 @@ function App() {
         variant="global"
       >
         <div className="settings-drawer-footer">
+          <div className="settings-section">
+            <div className="settings-section-title">Updates</div>
+            {availableUpdate ? (
+              <div>
+                <div style={{ color: '#facc15', fontSize: 'calc(13px * var(--ui-scale, 1))', marginBottom: 8 }}>
+                  v{availableUpdate.latestVersion} is available
+                </div>
+                <a
+                  href={availableUpdate.releaseUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="header-btn"
+                  style={{ display: 'block', textAlign: 'center', textDecoration: 'none', color: '#facc15', borderColor: '#facc15' }}
+                >
+                  ⬇ Download v{availableUpdate.latestVersion}
+                </a>
+                <div style={{ color: '#555', fontSize: 'calc(11px * var(--ui-scale, 1))', marginTop: 8, lineHeight: 1.4 }}>
+                  Download the new .exe, close this app, replace the old file and restart.
+                </div>
+              </div>
+            ) : (
+              <div style={{ color: '#555', fontSize: 'calc(12px * var(--ui-scale, 1))' }}>
+                You're on the latest version.
+              </div>
+            )}
+          </div>
           <div className="settings-section">
             <div className="settings-section-title">UI Scale</div>
             <div className="settings-footer-row">

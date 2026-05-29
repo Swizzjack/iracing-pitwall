@@ -32,4 +32,7 @@ pub enum ServerMessage {
 
     #[serde(rename_all = "camelCase")]
     Disconnected { reason: String },
+
+    #[serde(rename_all = "camelCase")]
+    UpdateAvailable { latest_version: String, release_url: String },
 }

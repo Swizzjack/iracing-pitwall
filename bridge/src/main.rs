@@ -9,6 +9,7 @@ mod config;
 mod error;
 mod iracing_sdk;
 mod telemetry;
+mod update;
 mod ws;
 
 use std::net::SocketAddr;
@@ -57,6 +58,18 @@ async fn main() -> Result<()> {
     let (si_tx, si_rx) = watch::channel(None::<iracing_sdk::types::SessionInfoYaml>);
     let (tm_tx, tm_rx) = watch::channel(None::<telemetry::TrackMapSnapshot>);
 
+    // Update check — runs in a background thread so it never delays startup.
+    // Set BRIDGE_VERSION_OVERRIDE=0.1.0 to test the "update available" UI.
+    let (upd_tx, upd_rx) = watch::channel(None::<update::UpdateInfo>);
+    let current_version = std::env::var("BRIDGE_VERSION_OVERRIDE")
+        .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
+    tokio::task::spawn_blocking(move || {
+        if let Some(info) = update::check_for_update(&current_version) {
+            log::info!("update available: v{}", info.latest_version);
+            let _ = upd_tx.send(Some(info));
+        }
+    });
+
     let lan_url = detect_lan_ip().map(|ip| format!("http://{}:{}/", ip, cfg.ws_port));
     if let Some(ref url) = lan_url {
         log::info!("LAN access: {url}");
@@ -68,6 +81,7 @@ async fn main() -> Result<()> {
         standings: std_rx,
         session_info: si_rx,
         track_map: tm_rx,
+        update: upd_rx,
         clients,
         lan_url,
     };

@@ -72,6 +72,21 @@ a phone, tablet, or a second PC.
 
 ---
 
+## Updating
+
+Starting with **v0.1.86**, iRacing Pitwall checks for new releases automatically.
+
+When a newer version is available, a small **⬆ update** badge appears next to the version
+number in the header. Open the **⚙ UI Settings** drawer — there you'll find an
+**"Download update"** button that takes you directly to the GitHub Releases page.
+Download the new `iracing-pitwall.exe`, stop the running instance (close all tabs or
+press Ctrl+C), and replace the old file.
+
+> **No automatic download or self-patching** — the update check is read-only. The app
+> never downloads or executes code on your behalf.
+
+---
+
 ## Configuration
 
 All settings are optional environment variables. The defaults work for most setups.

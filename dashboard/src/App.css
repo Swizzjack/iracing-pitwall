@@ -55,6 +55,17 @@ header h1 {
   margin-left: 6px;
 }
 
+.update-pill {
+  margin-left: 6px;
+  font-size: calc(11px * var(--ui-scale, 1));
+  color: #facc15;
+  border: 1px solid #facc1566;
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: default;
+  white-space: nowrap;
+}
+
 .lan-url {
   color: #22c55e;
   font-family: var(--font-mono);
