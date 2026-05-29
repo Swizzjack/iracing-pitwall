@@ -37,14 +37,16 @@ pub fn check_for_update(current: &str) -> Option<UpdateInfo> {
         .timeout_read(Duration::from_secs(10))
         .build();
 
-    let resp: serde_json::Value = agent
+    let body = agent
         .get(&url)
         .set("User-Agent", "iracing-pitwall")
         .set("Accept", "application/vnd.github+json")
         .call()
         .ok()?
-        .into_json()
+        .into_string()
         .ok()?;
+
+    let resp: serde_json::Value = serde_json::from_str(&body).ok()?;
 
     let tag_name = resp["tag_name"].as_str()?;
     let release_url = resp["html_url"].as_str()?;
