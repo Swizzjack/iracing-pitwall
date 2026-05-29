@@ -252,24 +252,6 @@ each has a legitimate purpose:
 If you prefer to verify the binary yourself, build it from source (see above). The
 entire codebase is in this repository.
 
-### Code signing
-
-An EV code-signing certificate (Sectigo/DigiCert/Certum, ~300–500 €/year) or
-[SignPath](https://signpath.io) is planned after the first public release. Authenticode
-signatures are the most effective long-term fix for AV reputation scores.
-
-### False-positive reports
-
-If you want to help reduce detections, you can report false positives directly to the
-flagging vendors:
-
-- **Microsoft Defender (Wacatac/Trojan):** <https://www.microsoft.com/en-us/wdsi/filesubmission>
-  → select "Not a threat" / "Incorrect detection"
-- **McAfee / Trellix:** <https://www.trellix.com/en-us/threat-center/threat-intelligence/submit-a-sample.html>
-  → select "False Positive"
-- **All others via VirusTotal:** open the scan result → Vendors tab → "Is this a false
-  positive?" button next to each vendor
-
 ---
 
 ## License
