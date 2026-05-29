@@ -266,10 +266,12 @@ fn connect_and_run(
     }
 }
 
-/// Determines the local LAN IP by routing towards a public address (no packets sent).
+/// Determines the local LAN IP via the routing table (no packets sent).
+/// Uses RFC 5737 TEST-NET (192.0.2.0/24) — never routed on the real internet,
+/// avoids "hardcoded external IP" heuristics in AV scanners.
 fn detect_lan_ip() -> Option<std::net::IpAddr> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.connect("8.8.8.8:80").ok()?;
+    socket.connect("192.0.2.1:1").ok()?;
     socket.local_addr().ok().map(|a| a.ip())
 }
 

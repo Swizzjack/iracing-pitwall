@@ -24,16 +24,20 @@ echo "→ Version bumped: $CUR_VER → $NEW_VER"
 echo "→ Building dashboard…"
 ( cd "$ROOT/dashboard" && npm run build )
 
-# ── 3) Bridge build (Windows cross-compile) ────────────────────────────────────
+# ── 3) Bridge build (Windows cross-compile, MSVC target) ──────────────────────
 echo "→ Building bridge (iracing-pitwall.exe)…"
 ( cd "$ROOT/bridge" && \
+  PATH="/work/.local/bin:$PATH" \
   CARGO_HOME=/work/.cache/cargo \
-  cargo zigbuild --release --target x86_64-pc-windows-gnu )
+  RUSTUP_HOME=/work/.cache/rustup-overlay \
+  XWIN_CACHE_DIR=/work/.cache/xwin \
+  RUSTFLAGS="--sysroot /work/.cache/rustup-overlay/toolchains/stable-x86_64-unknown-linux-gnu" \
+  cargo xwin build --release --target x86_64-pc-windows-msvc )
 
 # ── 4) Ins dist-Verzeichnis kopieren ──────────────────────────────────────────
 mkdir -p "$ROOT/dist"
 rm -f "$ROOT/dist/bridge.exe"
-cp "$ROOT/bridge/target/x86_64-pc-windows-gnu/release/iracing-pitwall.exe" \
+cp "$ROOT/bridge/target/x86_64-pc-windows-msvc/release/iracing-pitwall.exe" \
    "$ROOT/dist/iracing-pitwall.exe"
 
 SIZE=$(du -h "$ROOT/dist/iracing-pitwall.exe" | cut -f1)
