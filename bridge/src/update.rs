@@ -32,24 +32,41 @@ pub fn check_for_update(current: &str) -> Option<UpdateInfo> {
         REPO
     );
 
+    log::info!("update check: querying GitHub (current: v{current})");
+
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(5))
         .timeout_read(Duration::from_secs(10))
         .build();
 
-    let body = agent
+    let body = match agent
         .get(&url)
         .set("User-Agent", "iracing-pitwall")
         .set("Accept", "application/vnd.github+json")
         .call()
-        .ok()?
-        .into_string()
-        .ok()?;
+    {
+        Ok(resp) => match resp.into_string() {
+            Ok(b) => b,
+            Err(e) => { log::warn!("update check: failed to read response: {e}"); return None; }
+        },
+        Err(e) => { log::warn!("update check: HTTP request failed: {e}"); return None; }
+    };
 
-    let resp: serde_json::Value = serde_json::from_str(&body).ok()?;
+    let resp: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(e) => { log::warn!("update check: JSON parse error: {e}"); return None; }
+    };
 
-    let tag_name = resp["tag_name"].as_str()?;
-    let release_url = resp["html_url"].as_str()?;
+    let tag_name = match resp["tag_name"].as_str() {
+        Some(t) => t,
+        None => { log::warn!("update check: no tag_name in response"); return None; }
+    };
+    let release_url = match resp["html_url"].as_str() {
+        Some(u) => u,
+        None => { log::warn!("update check: no html_url in response"); return None; }
+    };
+
+    log::info!("update check: latest release is {tag_name}");
 
     if is_newer(tag_name, current) {
         Some(UpdateInfo {
@@ -57,6 +74,7 @@ pub fn check_for_update(current: &str) -> Option<UpdateInfo> {
             release_url: release_url.to_owned(),
         })
     } else {
+        log::info!("update check: v{current} is already up to date");
         None
     }
 }
