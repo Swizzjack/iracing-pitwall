@@ -62,8 +62,13 @@ header h1 {
   border: 1px solid #facc1566;
   border-radius: 4px;
   padding: 1px 6px;
-  cursor: default;
+  cursor: pointer;
   white-space: nowrap;
+  text-decoration: none;
+}
+.update-pill:hover {
+  border-color: #facc15;
+  background: #facc1510;
 }
 
 .lan-url {

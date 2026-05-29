@@ -148,12 +148,15 @@ function App() {
             {conn}
             {bridgeVersion && <span className="ver">v{bridgeVersion}</span>}
             {availableUpdate && (
-              <span
+              <a
                 className="update-pill"
-                title={`v${availableUpdate.latestVersion} available — open ⚙ Settings to download`}
+                href={availableUpdate.releaseUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={`v${availableUpdate.latestVersion} available — click to open release page`}
               >
                 ⬆ update
-              </span>
+              </a>
             )}
           </div>
           {lanUrl && (
@@ -192,15 +195,13 @@ function App() {
                 <div style={{ color: '#facc15', fontSize: 'calc(13px * var(--ui-scale, 1))', marginBottom: 8 }}>
                   v{availableUpdate.latestVersion} is available
                 </div>
-                <a
-                  href={availableUpdate.releaseUrl}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
                   className="header-btn"
-                  style={{ display: 'block', textAlign: 'center', textDecoration: 'none', color: '#facc15', borderColor: '#facc15' }}
+                  style={{ width: '100%', color: '#facc15', borderColor: '#facc15' }}
+                  onClick={() => window.open(availableUpdate.releaseUrl, '_blank')}
                 >
                   ⬇ Download v{availableUpdate.latestVersion}
-                </a>
+                </button>
                 <div style={{ color: '#555', fontSize: 'calc(11px * var(--ui-scale, 1))', marginTop: 8, lineHeight: 1.4 }}>
                   Download the new .exe, close this app, replace the old file and restart.
                 </div>
