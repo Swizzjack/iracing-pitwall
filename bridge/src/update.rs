@@ -34,7 +34,13 @@ pub fn check_for_update(current: &str) -> Option<UpdateInfo> {
 
     log::info!("update check: querying GitHub (current: v{current})");
 
+    let tls = match native_tls::TlsConnector::new() {
+        Ok(t) => t,
+        Err(e) => { log::warn!("update check: TLS init failed: {e}"); return None; }
+    };
+
     let agent = ureq::AgentBuilder::new()
+        .tls_connector(std::sync::Arc::new(tls))
         .timeout_connect(Duration::from_secs(5))
         .timeout_read(Duration::from_secs(10))
         .build();

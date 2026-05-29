@@ -1,6 +1,6 @@
 [package]
 name = "bridge"
-version = "0.1.91"
+version = "0.1.96"
 edition = "2021"
 rust-version = "1.80"
 
@@ -24,6 +24,7 @@ simplelog = "0.12"
 ts-rs = { version = "10", features = ["serde-compat"] }
 webbrowser = "1"
 ureq = { version = "2", default-features = false, features = ["native-tls"] }
+native-tls = "0.2"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.59"
