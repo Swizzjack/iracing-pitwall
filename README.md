@@ -15,8 +15,8 @@ while iRacing is open.
 
 ## Screenshots
 
-<!-- Drop screenshots/GIFs here before the public release. -->
-> Screenshots will be added before the first public release.
+<img width="2559" height="1439" alt="full" src="https://github.com/user-attachments/assets/f025d7d2-ad15-4b78-8929-59d2e3d2e9d4" />
+
 
 ---
 
