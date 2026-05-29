@@ -59,15 +59,25 @@ async fn main() -> Result<()> {
     let (tm_tx, tm_rx) = watch::channel(None::<telemetry::TrackMapSnapshot>);
 
     // Update check — runs in a background thread so it never delays startup.
+    // upd_tx is kept alive via pending() so the watch channel is never closed;
+    // a closed sender causes changed() to return Err and would disconnect all WS clients.
     // Set BRIDGE_VERSION_OVERRIDE=0.1.0 to test the "update available" UI.
     let (upd_tx, upd_rx) = watch::channel(None::<update::UpdateInfo>);
     let current_version = std::env::var("BRIDGE_VERSION_OVERRIDE")
         .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
-    tokio::task::spawn_blocking(move || {
-        if let Some(info) = update::check_for_update(&current_version) {
-            log::info!("update available: v{}", info.latest_version);
-            let _ = upd_tx.send(Some(info));
+    tokio::spawn(async move {
+        let info = tokio::task::spawn_blocking(move || {
+            update::check_for_update(&current_version)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(i) = info {
+            log::info!("update available: v{}", i.latest_version);
+            let _ = upd_tx.send(Some(i));
         }
+        // Keep upd_tx alive so the watch channel stays open for all WS clients.
+        std::future::pending::<()>().await;
     });
 
     let lan_url = detect_lan_ip().map(|ip| format!("http://{}:{}/", ip, cfg.ws_port));
