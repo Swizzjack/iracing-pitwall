@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react'
+
 interface Props {
   trackWidth: number
   carRadius: number
@@ -9,6 +11,8 @@ interface Props {
   fontSize: number
   tiltDeg: number
   zExag: number
+  hasMap: boolean
+  trackKey?: string
   onTrackWidth: (v: number) => void
   onCarRadius: (v: number) => void
   onSfLength: (v: number) => void
@@ -20,13 +24,22 @@ interface Props {
   onTiltDeg: (v: number) => void
   onZExag: (v: number) => void
   onResetAll: () => void
+  onDelete: (trackKey: string) => void
 }
 
 export function TrackMapSettings({
   trackWidth, carRadius, sfLength, sectorShow, sectorLength, sectorLiveColors, sectorFontSize, fontSize, tiltDeg, zExag,
+  hasMap, trackKey,
   onTrackWidth, onCarRadius, onSfLength, onSectorShow, onSectorLength, onSectorLiveColors, onSectorFontSize, onFontSize,
-  onTiltDeg, onZExag, onResetAll,
+  onTiltDeg, onZExag, onResetAll, onDelete,
 }: Props) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // Reset confirm state when the map disappears (delete succeeded or track changed).
+  useEffect(() => {
+    if (!hasMap) setConfirmDelete(false)
+  }, [hasMap])
+
   return (
     <>
       <div className="settings-section">
@@ -116,6 +129,24 @@ export function TrackMapSettings({
       <div className="settings-drawer-footer">
         <div className="settings-footer-btns">
           <button className="settings-btn" onClick={onResetAll}>Reset all</button>
+          {hasMap && (
+            confirmDelete ? (
+              <button
+                className="settings-btn settings-btn-active"
+                onClick={() => { if (trackKey) onDelete(trackKey); setConfirmDelete(false) }}
+              >
+                Really delete?
+              </button>
+            ) : (
+              <button
+                className="header-btn header-btn-danger"
+                onClick={() => setConfirmDelete(true)}
+                title="Delete the cached track map — a new lap will be recorded"
+              >
+                🗑 Delete map
+              </button>
+            )
+          )}
         </div>
       </div>
     </>

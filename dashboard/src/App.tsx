@@ -138,6 +138,10 @@ function App() {
     setStored(defaults)
   }
 
+  function handleDeleteTrackMap(trackKey: string) {
+    clientRef.current?.send({ type: 'deleteTrackMap', trackKey })
+  }
+
   return (
     <div className="app">
       <header>
@@ -242,7 +246,7 @@ function App() {
       </SettingsDrawer>
       <main>
         <Dashboard
-          data={{ tel, standings, info, trackMap }}
+          data={{ tel, standings, info, trackMap, onDeleteTrackMap: handleDeleteTrackMap }}
           visible={stored.visible}
           layout={stored.layout}
           editing={editing}

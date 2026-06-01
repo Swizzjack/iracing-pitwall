@@ -19,6 +19,7 @@ export type WidgetData = {
   standings: StandingsSnapshot | null
   info: SessionInfoYaml | null
   trackMap: TrackMapSnapshot | null
+  onDeleteTrackMap: (trackKey: string) => void
 }
 
 export type WidgetDef = {
@@ -50,7 +51,7 @@ export const REGISTRY: WidgetDef[] = [
   {
     id: 'trackMap',
     title: 'Track Map',
-    render: (d) => <TrackMap snap={d.trackMap} playerCarIdx={d.tel?.playerCarIdx ?? null} info={d.info} standings={d.standings} />,
+    render: (d) => <TrackMap snap={d.trackMap} playerCarIdx={d.tel?.playerCarIdx ?? null} info={d.info} standings={d.standings} onDelete={d.onDeleteTrackMap} />,
     default: { w: 6, h: 12, minW: 3, minH: 3 },
   },
   {

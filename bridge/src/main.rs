@@ -18,7 +18,7 @@ use std::time::Duration;
 use anyhow::Result;
 #[cfg(windows)]
 use anyhow::Context;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 /// Prüft per TCP-Connect ob bereits eine Bridge-Instanz auf diesem Port läuft.
 /// Schneller als port-binding und funktioniert ohne Windows-spezifische APIs.
@@ -57,6 +57,7 @@ async fn main() -> Result<()> {
     let (std_tx, std_rx) = watch::channel(None::<telemetry::StandingsSnapshot>);
     let (si_tx, si_rx) = watch::channel(None::<iracing_sdk::types::SessionInfoYaml>);
     let (tm_tx, tm_rx) = watch::channel(None::<telemetry::TrackMapSnapshot>);
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<ws::client::ClientMessage>();
 
     // Update check — runs in a background thread so it never delays startup.
     // upd_tx is kept alive via pending() so the watch channel is never closed;
@@ -92,13 +93,14 @@ async fn main() -> Result<()> {
         session_info: si_rx,
         track_map: tm_rx,
         update: upd_rx,
+        command: cmd_tx,
         clients,
         lan_url,
     };
 
     #[cfg(windows)]
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = sdk_loop(tel_tx, std_tx, si_tx, tm_tx) {
+        if let Err(e) = sdk_loop(tel_tx, std_tx, si_tx, tm_tx, cmd_rx) {
             log::error!("sdk_loop terminated: {e}");
         }
     });
@@ -106,7 +108,7 @@ async fn main() -> Result<()> {
     #[cfg(not(windows))]
     {
         log::warn!("Non-Windows build: iRacing SDK reader disabled.");
-        drop((tel_tx, std_tx, si_tx, tm_tx));
+        drop((tel_tx, std_tx, si_tx, tm_tx, cmd_rx));
     }
 
     let (addr, listener) = match ws::bind(cfg.ws_port).await {
@@ -168,11 +170,12 @@ fn sdk_loop(
     std_tx: watch::Sender<Option<telemetry::StandingsSnapshot>>,
     si_tx: watch::Sender<Option<iracing_sdk::types::SessionInfoYaml>>,
     tm_tx: watch::Sender<Option<telemetry::TrackMapSnapshot>>,
+    mut cmd_rx: mpsc::UnboundedReceiver<ws::client::ClientMessage>,
 ) -> Result<()> {
     const RETRY_DELAY: Duration = Duration::from_secs(3);
 
     loop {
-        match connect_and_run(&tel_tx, &std_tx, &si_tx, &tm_tx) {
+        match connect_and_run(&tel_tx, &std_tx, &si_tx, &tm_tx, &mut cmd_rx) {
             Ok(()) => return Ok(()),
             Err(e) => {
                 if matches!(
@@ -195,6 +198,7 @@ fn connect_and_run(
     std_tx: &watch::Sender<Option<telemetry::StandingsSnapshot>>,
     si_tx: &watch::Sender<Option<iracing_sdk::types::SessionInfoYaml>>,
     tm_tx: &watch::Sender<Option<telemetry::TrackMapSnapshot>>,
+    cmd_rx: &mut mpsc::UnboundedReceiver<ws::client::ClientMessage>,
 ) -> Result<()> {
     use iracing_sdk::yaml::decode_and_parse;
     use iracing_sdk::synthetic_id::SyntheticSubSessionId;
@@ -226,6 +230,14 @@ fn connect_and_run(
                 }
                 synthetic.reset();
                 return Err(e.into());
+            }
+        }
+
+        // Drain dashboard commands (non-blocking; latency ≤ 1 frame ≈ 16 ms at 60 Hz).
+        while let Ok(cmd) = cmd_rx.try_recv() {
+            use ws::client::ClientMessage;
+            match cmd {
+                ClientMessage::DeleteTrackMap { track_key } => recorder.delete_cached(&track_key),
             }
         }
 

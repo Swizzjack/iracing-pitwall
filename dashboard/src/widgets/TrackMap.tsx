@@ -12,6 +12,7 @@ interface Props {
   playerCarIdx: number | null
   info: SessionInfoYaml | null
   standings: StandingsSnapshot | null
+  onDelete: (trackKey: string) => void
 }
 
 // ─── Settings persistence ─────────────────────────────────────────────────────
@@ -385,7 +386,7 @@ const RESAMPLE_N = 512
 
 // ─── Widget ───────────────────────────────────────────────────────────────────
 
-export function TrackMap({ snap, playerCarIdx, info, standings }: Props) {
+export function TrackMap({ snap, playerCarIdx, info, standings, onDelete }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef   = useRef<number>(0)
   const dataRef   = useRef({ snap, playerCarIdx, standings })
@@ -554,6 +555,8 @@ export function TrackMap({ snap, playerCarIdx, info, standings }: Props) {
             fontSize={fontSize}
             tiltDeg={tiltDeg}
             zExag={zExag}
+            hasMap={snap?.shape != null}
+            trackKey={snap?.trackKey}
             onTrackWidth={v => { setTrackWidth(v); persist(TRACK_W_KEY, v) }}
             onCarRadius={v => { setCarRadius(v); persist(CAR_R_KEY, v) }}
             onSfLength={v => { setSfLength(v); persist(SF_LEN_KEY, v) }}
@@ -565,6 +568,7 @@ export function TrackMap({ snap, playerCarIdx, info, standings }: Props) {
             onTiltDeg={v => { setTiltDeg(v); persist(TILT_KEY, v) }}
             onZExag={v => { setZExag(v); persist(ZEXAG_KEY, v) }}
             onResetAll={handleResetAll}
+            onDelete={onDelete}
           />
         </SettingsDrawer>
         <div style={{ position: 'relative', flex: '1 1 0', minHeight: 0 }}>

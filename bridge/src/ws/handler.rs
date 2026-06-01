@@ -25,6 +25,7 @@ use crate::error::{BridgeError, Result};
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
 use crate::update::UpdateInfo;
+use crate::ws::client::ClientMessage;
 use crate::ws::lifecycle::ClientTracker;
 use crate::ws::protocol::ServerMessage;
 
@@ -39,6 +40,7 @@ pub struct BridgeState {
     pub session_info: watch::Receiver<Option<SessionInfoYaml>>,
     pub track_map: watch::Receiver<Option<TrackMapSnapshot>>,
     pub update: watch::Receiver<Option<UpdateInfo>>,
+    pub command: tokio::sync::mpsc::UnboundedSender<ClientMessage>,
     pub clients: ClientTracker,
     pub lan_url: Option<String>,
 }
@@ -89,6 +91,7 @@ type WsSink = SplitSink<WebSocket, Message>;
 
 async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()> {
     let (mut sink, mut stream) = socket.split();
+    let cmd_tx = state.command.clone();
 
     send_msg(
         &mut sink,
@@ -136,7 +139,13 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
             msg = stream.next() => {
                 match msg {
                     None | Some(Err(_)) => return Ok(()),
-                    Some(Ok(_)) => {} // no client messages expected
+                    Some(Ok(Message::Text(txt))) => {
+                        match serde_json::from_str::<ClientMessage>(&txt) {
+                            Ok(cmd) => { let _ = cmd_tx.send(cmd); }
+                            Err(e) => log::warn!("ws: ignoring bad client message: {e}"),
+                        }
+                    }
+                    Some(Ok(_)) => {} // ping/pong/binary/close
                 }
             }
             r = tel_rx.changed() => {

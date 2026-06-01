@@ -320,6 +320,27 @@ impl TrackRecorder {
         Ok(())
     }
 
+    /// Deletes the cached JSON for `track_key` and, if it is the currently
+    /// active track, clears the in-memory shape so the recorder restarts.
+    pub fn delete_cached(&mut self, track_key: &str) {
+        let path = self.cache_path(track_key);
+        match std::fs::remove_file(&path) {
+            Ok(()) => log::info!("track map: deleted cache {}", path.display()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                log::warn!("track map: delete failed {}: {e}", path.display());
+                return;
+            }
+        }
+        // Active track? → clear in-memory state so update() re-records.
+        if self.current_key.as_deref() == Some(track_key) {
+            self.shape = None;
+            self.recording = None;
+            self.pre_arm_last_p = None;
+            self.armed_logged = false;
+        }
+    }
+
     fn cache_path(&self, track_key: &str) -> PathBuf {
         let safe_key: String = track_key
             .chars()
