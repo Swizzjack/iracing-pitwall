@@ -317,6 +317,10 @@ impl IRacingClient {
         self.read::<i32>(name, VarType::Int)
     }
 
+    pub fn get_bitfield_array(&self, name: &str) -> Result<&[u32]> {
+        self.read::<u32>(name, VarType::BitField)
+    }
+
     pub fn get_bool_array(&self, name: &str) -> Result<Vec<bool>> {
         let desc = self
             .var_index

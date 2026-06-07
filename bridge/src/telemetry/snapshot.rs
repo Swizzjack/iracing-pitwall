@@ -49,6 +49,12 @@ pub struct TelemetrySnapshot {
     pub on_pit_road: bool,
     pub player_car_my_incident_count: Option<i32>,
 
+    // Per-car session flags for the player (blue flag, drive-through penalty, etc.)
+    pub player_car_session_flags: Option<u32>,
+    /// True when iRacing has issued a drive-through penalty for the player's car
+    /// (CarIdxSessionFlags bit 0x10000000 = irsdk_hasDriveThrough).
+    pub player_has_drivethrough_penalty: bool,
+
     // Tires — 4 corners × (carcass temp L/M/R, pressure, wear L/M/R)
     pub tire_temp_lf: [f32; 3],
     pub tire_temp_rf: [f32; 3],
@@ -144,6 +150,14 @@ impl TelemetrySnapshot {
     /// Extrahiert die Whitelist-Felder aus dem aktuellen Frame-Buffer.
     /// Muss nach `IRacingClient::wait_for_frame()` aufgerufen werden.
     pub fn build(client: &IRacingClient) -> Result<Self> {
+        let player_car_idx = client.get_i32("PlayerCarIdx")?;
+
+        // Per-car session flags for the player's car (BitField array — blue/debris flag detection)
+        let player_car_session_flags = client
+            .get_bitfield_array("CarIdxSessionFlags")
+            .ok()
+            .and_then(|arr| arr.get(player_car_idx as usize).copied());
+
         Ok(Self {
             // Session state
             session_num: client.get_i32("SessionNum")?,
@@ -152,7 +166,7 @@ impl TelemetrySnapshot {
             is_on_track: client.get_bool("IsOnTrack")?,
             is_on_track_car: client.get_bool("IsOnTrackCar")?,
             is_in_garage: client.get_bool("IsInGarage")?,
-            player_car_idx: client.get_i32("PlayerCarIdx")?,
+            player_car_idx,
 
             // Inputs
             throttle: client.get_f32("Throttle")?,
@@ -181,6 +195,9 @@ impl TelemetrySnapshot {
             player_class_position: client.get_i32("PlayerCarClassPosition")?,
             on_pit_road: client.get_bool("OnPitRoad")?,
             player_car_my_incident_count: client.get_i32("PlayerCarMyIncidentCount").ok(),
+            player_car_session_flags,
+            player_has_drivethrough_penalty: player_car_session_flags
+                .map_or(false, |f| (f & 0x10000000) != 0),
 
             // Tires
             tire_temp_lf: corner_temps(client, "LF")?,

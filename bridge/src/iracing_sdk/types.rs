@@ -108,6 +108,28 @@ pub struct WeekendInfo {
     pub track_pit_speed_limit: Option<String>,
     #[serde(rename = "Category", default)]
     pub category: Option<String>,
+    #[serde(rename = "WeekendOptions", default)]
+    pub weekend_options: Option<WeekendOptions>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "../shared/")]
+pub struct WeekendOptions {
+    /// Raw string from iRacing: "unlimited" or e.g. "17x". Use `incident_limit()` to parse.
+    #[serde(rename = "IncidentLimit", default)]
+    pub incident_limit_raw: String,
+}
+
+impl WeekendOptions {
+    /// Returns `None` for "unlimited", `Some(n)` for a numeric limit ("17x" → 17).
+    pub fn incident_limit(&self) -> Option<u32> {
+        if self.incident_limit_raw.eq_ignore_ascii_case("unlimited") || self.incident_limit_raw.is_empty() {
+            return None;
+        }
+        // iRacing appends "x" (e.g. "17x") — strip it and parse the number
+        let s = self.incident_limit_raw.trim_end_matches('x').trim();
+        s.parse::<u32>().ok()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
