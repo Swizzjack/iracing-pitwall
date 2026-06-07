@@ -9,4 +9,34 @@ use ts_rs::TS;
 pub enum ClientMessage {
     #[serde(rename_all = "camelCase")]
     DeleteTrackMap { track_key: String },
+
+    // --- Race Engineer ---
+
+    EngineerGetStatus,
+
+    EngineerInstallPiper,
+
+    #[serde(rename_all = "camelCase")]
+    EngineerInstallVoice { voice_id: String },
+
+    #[serde(rename_all = "camelCase")]
+    EngineerUninstallVoice { voice_id: String },
+
+    #[serde(rename_all = "camelCase")]
+    EngineerSynthesize {
+        voice_id: String,
+        text: String,
+        request_id: String,
+    },
+
+    #[serde(rename_all = "camelCase")]
+    EngineerUpdateBehavior {
+        enabled: bool,
+        frequency: String,
+        mute_in_qualifying: bool,
+        debug_all_rules_in_practice: bool,
+        active_voice_id: Option<String>,
+        pilot_name: Option<String>,
+        mute_name: bool,
+    },
 }

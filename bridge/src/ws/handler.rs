@@ -19,10 +19,11 @@ use axum::{
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use rust_embed::RustEmbed;
 use tokio::net::TcpListener;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{broadcast, oneshot, watch};
 
 use crate::error::{BridgeError, Result};
 use crate::iracing_sdk::types::SessionInfoYaml;
+use crate::race_engineer::{EngineerAudioTx, EngineerCmdTx};
 use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
 use crate::update::UpdateInfo;
 use crate::ws::client::ClientMessage;
@@ -40,7 +41,12 @@ pub struct BridgeState {
     pub session_info: watch::Receiver<Option<SessionInfoYaml>>,
     pub track_map: watch::Receiver<Option<TrackMapSnapshot>>,
     pub update: watch::Receiver<Option<UpdateInfo>>,
+    /// SDK-loop commands (DeleteTrackMap)
     pub command: tokio::sync::mpsc::UnboundedSender<ClientMessage>,
+    /// Engineer commands (EngineerGetStatus, Install*, Synthesize, UpdateBehavior)
+    pub engineer_cmd: EngineerCmdTx,
+    /// Engineer broadcast — audio, status, progress
+    pub engineer_audio: EngineerAudioTx,
     pub clients: ClientTracker,
     pub lan_url: Option<String>,
 }
@@ -91,7 +97,14 @@ type WsSink = SplitSink<WebSocket, Message>;
 
 async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()> {
     let (mut sink, mut stream) = socket.split();
-    let cmd_tx = state.command.clone();
+
+    let mut tel_rx = state.telemetry;
+    let mut std_rx = state.standings;
+    let mut si_rx = state.session_info;
+    let mut tm_rx = state.track_map;
+    let mut upd_rx = state.update;
+    // Subscribe to engineer broadcast before any await
+    let mut eng_rx = state.engineer_audio.subscribe();
 
     send_msg(
         &mut sink,
@@ -102,13 +115,7 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
     )
     .await?;
 
-    let mut tel_rx = state.telemetry;
-    let mut std_rx = state.standings;
-    let mut si_rx = state.session_info;
-    let mut tm_rx = state.track_map;
-    let mut upd_rx = state.update;
-
-    // Initial replay — clone immediately so the watch::Ref guard drops before any await.
+    // Initial replay
     let init_tel = tel_rx.borrow_and_update().clone();
     let init_std = std_rx.borrow_and_update().clone();
     let init_si = si_rx.borrow_and_update().clone();
@@ -134,6 +141,9 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
         }).await?;
     }
 
+    // Request engineer status on connection
+    let _ = state.engineer_cmd.send(ClientMessage::EngineerGetStatus);
+
     loop {
         tokio::select! {
             msg = stream.next() => {
@@ -141,7 +151,22 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
                     None | Some(Err(_)) => return Ok(()),
                     Some(Ok(Message::Text(txt))) => {
                         match serde_json::from_str::<ClientMessage>(&txt) {
-                            Ok(cmd) => { let _ = cmd_tx.send(cmd); }
+                            Ok(cmd) => {
+                                let is_engineer = matches!(
+                                    cmd,
+                                    ClientMessage::EngineerGetStatus
+                                    | ClientMessage::EngineerInstallPiper
+                                    | ClientMessage::EngineerInstallVoice { .. }
+                                    | ClientMessage::EngineerUninstallVoice { .. }
+                                    | ClientMessage::EngineerSynthesize { .. }
+                                    | ClientMessage::EngineerUpdateBehavior { .. }
+                                );
+                                if is_engineer {
+                                    let _ = state.engineer_cmd.send(cmd);
+                                } else {
+                                    let _ = state.command.send(cmd);
+                                }
+                            }
                             Err(e) => log::warn!("ws: ignoring bad client message: {e}"),
                         }
                     }
@@ -184,6 +209,20 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
                         latest_version: u.latest_version,
                         release_url: u.release_url,
                     }).await?;
+                }
+            }
+            r = eng_rx.recv() => {
+                match r {
+                    Ok(msg) => {
+                        send_msg(&mut sink, &msg).await?;
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        log::warn!("ws: engineer broadcast lagged, skipped {n} messages");
+                        // Non-fatal: skip lagged audio messages
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        return Err(BridgeError::WebSocket("engineer channel closed".into()));
+                    }
                 }
             }
         }

@@ -8,6 +8,7 @@
 mod config;
 mod error;
 mod iracing_sdk;
+mod race_engineer;
 mod telemetry;
 mod update;
 mod ws;
@@ -18,7 +19,7 @@ use std::time::Duration;
 use anyhow::Result;
 #[cfg(windows)]
 use anyhow::Context;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 /// Prüft per TCP-Connect ob bereits eine Bridge-Instanz auf diesem Port läuft.
 /// Schneller als port-binding und funktioniert ohne Windows-spezifische APIs.
@@ -53,16 +54,27 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // --- Data channels ---
     let (tel_tx, tel_rx) = watch::channel(None::<telemetry::TelemetrySnapshot>);
     let (std_tx, std_rx) = watch::channel(None::<telemetry::StandingsSnapshot>);
     let (si_tx, si_rx) = watch::channel(None::<iracing_sdk::types::SessionInfoYaml>);
     let (tm_tx, tm_rx) = watch::channel(None::<telemetry::TrackMapSnapshot>);
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<ws::client::ClientMessage>();
 
+    // --- Race Engineer channels ---
+    let (eng_state_tx, eng_state_rx) = mpsc::unbounded_channel::<race_engineer::state::EngineerState>();
+    let (eng_cmd_tx, eng_cmd_rx) = mpsc::unbounded_channel::<ws::client::ClientMessage>();
+    // broadcast capacity: 64 slots (audio clips are infrequent, ~1 every few seconds at most)
+    let (eng_audio_tx, _eng_audio_keep_rx) = broadcast::channel::<ws::protocol::ServerMessage>(64);
+
+    // Spawn race engineer async task
+    tokio::spawn(race_engineer::run_engineer_task(
+        eng_state_rx,
+        eng_cmd_rx,
+        eng_audio_tx.clone(),
+    ));
+
     // Update check — runs in a background thread so it never delays startup.
-    // upd_tx is kept alive via pending() so the watch channel is never closed;
-    // a closed sender causes changed() to return Err and would disconnect all WS clients.
-    // Set BRIDGE_VERSION_OVERRIDE=0.1.0 to test the "update available" UI.
     let (upd_tx, upd_rx) = watch::channel(None::<update::UpdateInfo>);
     let current_version = std::env::var("BRIDGE_VERSION_OVERRIDE")
         .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
@@ -77,7 +89,6 @@ async fn main() -> Result<()> {
             log::info!("update available: v{}", i.latest_version);
             let _ = upd_tx.send(Some(i));
         }
-        // Keep upd_tx alive so the watch channel stays open for all WS clients.
         std::future::pending::<()>().await;
     });
 
@@ -94,13 +105,15 @@ async fn main() -> Result<()> {
         track_map: tm_rx,
         update: upd_rx,
         command: cmd_tx,
+        engineer_cmd: eng_cmd_tx,
+        engineer_audio: eng_audio_tx,
         clients,
         lan_url,
     };
 
     #[cfg(windows)]
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = sdk_loop(tel_tx, std_tx, si_tx, tm_tx, cmd_rx) {
+        if let Err(e) = sdk_loop(tel_tx, std_tx, si_tx, tm_tx, cmd_rx, eng_state_tx) {
             log::error!("sdk_loop terminated: {e}");
         }
     });
@@ -108,7 +121,7 @@ async fn main() -> Result<()> {
     #[cfg(not(windows))]
     {
         log::warn!("Non-Windows build: iRacing SDK reader disabled.");
-        drop((tel_tx, std_tx, si_tx, tm_tx, cmd_rx));
+        drop((tel_tx, std_tx, si_tx, tm_tx, cmd_rx, eng_state_tx));
     }
 
     let (addr, listener) = match ws::bind(cfg.ws_port).await {
@@ -157,13 +170,10 @@ async fn main() -> Result<()> {
             }
         }
     }
-    // spawn_blocking(sdk_loop) würde die Runtime beim Drop blockieren (wait_for_frame
-    // ist blockierend). process::exit beendet alle Threads sofort und sauber.
     std::process::exit(0);
 }
 
 /// Blocking SDK loop — runs in spawn_blocking, owns the IRacingClient for its lifetime.
-/// Retries indefinitely until iRacing is running, reconnects after disconnect.
 #[cfg(windows)]
 fn sdk_loop(
     tel_tx: watch::Sender<Option<telemetry::TelemetrySnapshot>>,
@@ -171,11 +181,12 @@ fn sdk_loop(
     si_tx: watch::Sender<Option<iracing_sdk::types::SessionInfoYaml>>,
     tm_tx: watch::Sender<Option<telemetry::TrackMapSnapshot>>,
     mut cmd_rx: mpsc::UnboundedReceiver<ws::client::ClientMessage>,
+    eng_state_tx: mpsc::UnboundedSender<race_engineer::state::EngineerState>,
 ) -> Result<()> {
     const RETRY_DELAY: Duration = Duration::from_secs(3);
 
     loop {
-        match connect_and_run(&tel_tx, &std_tx, &si_tx, &tm_tx, &mut cmd_rx) {
+        match connect_and_run(&tel_tx, &std_tx, &si_tx, &tm_tx, &mut cmd_rx, &eng_state_tx) {
             Ok(()) => return Ok(()),
             Err(e) => {
                 if matches!(
@@ -199,6 +210,7 @@ fn connect_and_run(
     si_tx: &watch::Sender<Option<iracing_sdk::types::SessionInfoYaml>>,
     tm_tx: &watch::Sender<Option<telemetry::TrackMapSnapshot>>,
     cmd_rx: &mut mpsc::UnboundedReceiver<ws::client::ClientMessage>,
+    eng_state_tx: &mpsc::UnboundedSender<race_engineer::state::EngineerState>,
 ) -> Result<()> {
     use iracing_sdk::yaml::decode_and_parse;
     use iracing_sdk::synthetic_id::SyntheticSubSessionId;
@@ -216,6 +228,8 @@ fn connect_and_run(
     let mut session_transition = telemetry::session_transition::SessionTransitionDetector::default();
     let mut recorder = telemetry::track_recorder::TrackRecorder::new(cache_dir);
     let mut synthetic = SyntheticSubSessionId::default();
+    let mut eng_aggregator = race_engineer::state::StateAggregator::default();
+    let mut last_standings: Option<telemetry::StandingsSnapshot> = None;
     let mut frame: u64 = 0;
 
     loop {
@@ -233,18 +247,19 @@ fn connect_and_run(
             }
         }
 
-        // Drain dashboard commands (non-blocking; latency ≤ 1 frame ≈ 16 ms at 60 Hz).
+        // Drain dashboard commands (non-blocking)
         while let Ok(cmd) = cmd_rx.try_recv() {
             use ws::client::ClientMessage;
             match cmd {
                 ClientMessage::DeleteTrackMap { track_key } => recorder.delete_cached(&track_key),
+                _ => {} // Engineer commands are routed directly to eng_cmd_tx in handler
             }
         }
 
         let tel = telemetry::TelemetrySnapshot::build(&client).context("telemetry build")?;
         let player_car_idx = tel.player_car_idx;
         let session_num = tel.session_num;
-        let _ = tel_tx.send(Some(tel));
+        let _ = tel_tx.send(Some(tel.clone()));
 
         // Sector tracker runs every frame for 60 Hz accuracy.
         if let Some(ref y) = yaml_cache {
@@ -253,11 +268,24 @@ fn connect_and_run(
             }
         }
 
-        // Every 15 frames ≈ 250 ms at 60 Hz → 4 Hz standings + session-info
+        // Every 6 frames ≈ 10 Hz → engineer state.
+        // Reuse the last known standings so session_type stays correct on every tick.
+        // Until the first standings snapshot arrives (~first 250 ms) this passes None →
+        // session_type = Unknown → all rules skipped (harmless transient).
+        if frame % 6 == 0 && frame % 15 != 0 {
+            let eng_state = eng_aggregator.build_state(&tel, last_standings.as_ref());
+            let _ = eng_state_tx.send(eng_state);
+        }
+
+        // Every 15 frames ≈ 4 Hz → standings + session-info
         if frame % 15 == 0 {
             let cur = client.session_info_update();
             if cur != last_si_update || yaml_cache.is_none() {
                 let yaml = decode_and_parse(client.session_info_bytes()).context("session_info YAML decode")?;
+                let inc_limit = yaml.weekend_info.weekend_options
+                    .as_ref()
+                    .and_then(|o| o.incident_limit());
+                eng_aggregator.set_incident_limit(inc_limit);
                 let _ = si_tx.send(Some(yaml.clone()));
                 yaml_cache = Some(yaml);
                 last_si_update = cur;
@@ -275,21 +303,25 @@ fn connect_and_run(
                     &client, y, &pit_tracker, &sector_tracker, &mut finish_tracker,
                 )
                 .context("standings build")?;
-                // Drain completed laps (sector_tracker still tracks these for SectorTracker state).
                 let _ = sector_tracker.drain_completed_laps();
-                // Detect session transitions for synthetic ID bookkeeping.
                 session_transition.observe(session_num);
                 finish_tracker.checkered_edge_fired();
+
+                // Engineer state with standings (full data including gaps).
+                // Cache snap for reuse in the 10 Hz intermediate ticks.
+                let eng_state = eng_aggregator.build_state(&tel, Some(&snap));
+                let _ = eng_state_tx.send(eng_state);
+                last_standings = Some(snap.clone());
+
                 let _ = std_tx.send(Some(snap));
             }
         }
 
-        // TrackRecorder runs every frame (needs 60Hz position data for integration).
+        // TrackRecorder runs every frame
         if let Some(ref y) = yaml_cache {
             if let Err(e) = recorder.update(&client, y) {
                 log::warn!("track recorder: {e}");
             }
-            // Push TrackMap at ~15 Hz (every 4 frames).
             if frame % 4 == 0 {
                 match telemetry::track_map::TrackMapSnapshot::build(&client, y, &recorder, player_car_idx) {
                     Ok(snap) => { let _ = tm_tx.send(Some(snap)); }
@@ -302,9 +334,6 @@ fn connect_and_run(
     }
 }
 
-/// Determines the local LAN IP via the routing table (no packets sent).
-/// Uses RFC 5737 TEST-NET (192.0.2.0/24) — never routed on the real internet,
-/// avoids "hardcoded external IP" heuristics in AV scanners.
 fn detect_lan_ip() -> Option<std::net::IpAddr> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("192.0.2.1:1").ok()?;

@@ -102,6 +102,7 @@ mod tests {
             track_num_turns: None,
             track_pit_speed_limit: None,
             category: None,
+            weekend_options: None,
         }
     }
 

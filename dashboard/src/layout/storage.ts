@@ -18,6 +18,8 @@ const DEFAULT_POSITIONS = [
   { x: 0, y: 33 },  // electronics
   { x: 6, y: 33 },  // tire
   { x: 0, y: 44 },  // lapHistory
+  { x: 5, y: 44 },  // wind
+  { x: 9, y: 44 },  // engineerTranscript
 ]
 
 export function buildDefaultLayout(): StoredLayout {

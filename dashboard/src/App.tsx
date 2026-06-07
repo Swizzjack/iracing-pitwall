@@ -10,6 +10,14 @@ import { Dashboard } from './layout/Dashboard'
 import { EditToolbar } from './layout/EditToolbar'
 import { loadLayout, saveLayout, resetLayout, type StoredLayout } from './layout/storage'
 import { SettingsDrawer } from './components/SettingsDrawer'
+import { RaceEngineerPage } from './features/race-engineer/RaceEngineerPage'
+import { engineerService } from './features/race-engineer/audio/AudioEngineerService'
+import {
+  loadEngineerSettings,
+  saveEngineerSettings,
+  type EngineerSettings,
+} from './features/race-engineer/state/engineerSettings'
+import type { EngineerServerMsg } from './features/race-engineer/types'
 import './App.css'
 
 const UI_SCALE_KEY = 'iracing-ui-scale-v1'
@@ -23,6 +31,18 @@ function loadUiScale(): number {
 const WS_URL = import.meta.env.DEV
   ? 'ws://127.0.0.1:8765/ws'
   : `ws://${location.host}/ws`
+
+/** Type-guard: is this ServerMessage one of the engineer subtypes? */
+function isEngineerMsg(msg: ServerMessage): boolean {
+  const t = msg.type as string
+  return (
+    t === 'engineerStatus' ||
+    t === 'engineerInstallProgress' ||
+    t === 'engineerInstallComplete' ||
+    t === 'engineerAudio' ||
+    t === 'engineerError'
+  )
+}
 
 function App() {
   const [conn, setConn] = useState<ConnectionState>('closed')
@@ -38,6 +58,11 @@ function App() {
   const [stored, setStored] = useState<StoredLayout>(loadLayout)
   const [uiScale, setUiScale] = useState<number>(loadUiScale)
   const [showGlobalSettings, setShowGlobalSettings] = useState(false)
+  const [showEngineer, setShowEngineer] = useState(false)
+
+  // Race Engineer settings
+  const [engineerSettings, setEngineerSettings] = useState<EngineerSettings>(loadEngineerSettings)
+  const engineerSettingsRef = useRef<EngineerSettings>(engineerSettings)
 
   // 60 Hz telemetry → throttle to one render per animation frame
   const pendingTel = useRef<TelemetrySnapshot | null>(null)
@@ -56,6 +81,21 @@ function App() {
     localStorage.setItem(UI_SCALE_KEY, String(uiScale))
   }, [uiScale])
 
+  // Initialize engineer service with a command sender
+  useEffect(() => {
+    engineerService.init((msg) => {
+      clientRef.current?.send(msg as never)
+    })
+    // Sync initial settings to backend on mount
+    engineerService.setEnabled(engineerSettings.enabled)
+    engineerService.setVolume(engineerSettings.volume)
+    engineerService.setRadioEffect(engineerSettings.radioEffect)
+    void engineerService.setOutputDevice(engineerSettings.outputDeviceId)
+
+    return () => engineerService.destroy()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const toggleFs = () => {
     if (document.fullscreenElement) document.exitFullscreen()
     else document.documentElement.requestFullscreen()
@@ -66,10 +106,26 @@ function App() {
     clientRef.current = client
     const offState = client.onState(setConn)
     const offMsg = client.onMessage((msg: ServerMessage) => {
+      // Forward engineer messages to the audio service
+      if (isEngineerMsg(msg)) {
+        engineerService.handleMessage(msg as unknown as EngineerServerMsg)
+        return
+      }
+
       switch (msg.type) {
         case 'hello':
           setBridgeVersion(msg.bridgeVersion)
           setLanUrl(msg.lanUrl ?? null)
+          // Re-sync engineer behavior on every fresh bridge connection
+          engineerService.sendBehaviorUpdate({
+            enabled: engineerSettingsRef.current.enabled,
+            frequency: engineerSettingsRef.current.frequency,
+            muteInQualifying: engineerSettingsRef.current.muteInQualifying,
+            debugAllRulesInPractice: engineerSettingsRef.current.debugAllRulesInPractice,
+            activeVoiceId: engineerSettingsRef.current.activeVoiceId,
+            pilotName: engineerSettingsRef.current.pilotName || null,
+            muteNameInCallouts: engineerSettingsRef.current.muteNameInCallouts,
+          })
           break
         case 'telemetry':
           pendingTel.current = msg.snapshot
@@ -139,7 +195,31 @@ function App() {
   }
 
   function handleDeleteTrackMap(trackKey: string) {
-    clientRef.current?.send({ type: 'deleteTrackMap', trackKey })
+    clientRef.current?.send({ type: 'deleteTrackMap', trackKey } as never)
+  }
+
+  function handleEngineerSettingsChange(partial: Partial<EngineerSettings>) {
+    setEngineerSettings((prev) => {
+      const next = { ...prev, ...partial }
+      engineerSettingsRef.current = next
+      saveEngineerSettings(next)
+      // Sync changed settings to the service / backend
+      if ('enabled' in partial) engineerService.setEnabled(next.enabled)
+      if ('volume' in partial) engineerService.setVolume(next.volume)
+      if ('radioEffect' in partial) engineerService.setRadioEffect(next.radioEffect)
+      if ('outputDeviceId' in partial) void engineerService.setOutputDevice(next.outputDeviceId)
+      // Send behaviour update for backend-relevant settings
+      engineerService.sendBehaviorUpdate({
+        enabled: next.enabled,
+        frequency: next.frequency,
+        muteInQualifying: next.muteInQualifying,
+        debugAllRulesInPractice: next.debugAllRulesInPractice,
+        activeVoiceId: next.activeVoiceId,
+        pilotName: next.pilotName || null,
+        muteNameInCallouts: next.muteNameInCallouts,
+      })
+      return next
+    })
   }
 
   return (
@@ -164,7 +244,7 @@ function App() {
             )}
           </div>
           {lanUrl && (
-            <a className="lan-url" href={lanUrl} target="_blank" rel="noreferrer" title="LAN-Adresse — auf anderen Geräten öffnen">
+            <a className="lan-url" href={lanUrl} target="_blank" rel="noreferrer" title="LAN address — open on other devices">
               {lanUrl.replace('http://', '').replace(/\/$/, '')}
             </a>
           )}
@@ -178,13 +258,44 @@ function App() {
           <button className="fs-btn" onClick={toggleFs} title={isFs ? 'Exit fullscreen' : 'Enter fullscreen'}>
             {isFs ? '⤡' : '⤢'}
           </button>
+          {/* Race Engineer button */}
+          <button
+            className={`fs-btn${showEngineer ? ' header-btn-active' : ''}`}
+            onClick={() => { setShowEngineer(v => !v); setShowGlobalSettings(false) }}
+            title="Race Engineer"
+          >🎙</button>
           <button
             className={`fs-btn${showGlobalSettings ? ' header-btn-active' : ''}`}
-            onClick={() => setShowGlobalSettings(v => !v)}
+            onClick={() => { setShowGlobalSettings(v => !v); setShowEngineer(false) }}
             title="UI Settings"
           >⚙</button>
         </div>
       </header>
+
+      {/* Race Engineer panel */}
+      {showEngineer && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 48,
+            right: 0,
+            width: 340,
+            maxHeight: 'calc(100vh - 56px)',
+            overflowY: 'auto',
+            background: '#111',
+            borderLeft: '1px solid #222',
+            zIndex: 200,
+            padding: '16px 16px 24px',
+          }}
+        >
+          <RaceEngineerPage
+            settings={engineerSettings}
+            onSettingsChange={handleEngineerSettingsChange}
+            onClose={() => setShowEngineer(false)}
+          />
+        </div>
+      )}
+
       <SettingsDrawer
         open={showGlobalSettings}
         onClose={() => setShowGlobalSettings(false)}
