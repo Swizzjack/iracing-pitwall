@@ -1,10 +1,10 @@
-//! Admin-/Debug-Snapshot: vollständiger Live-Dump aller SDK-Daten.
+//! Admin/debug snapshot: full live dump of all SDK data.
 //!
-//! Anders als `TelemetrySnapshot` (kuratierte Whitelist) liefert dieser Snapshot
-//! ALLES, was die SDK bereitstellt — jede Variable, das vollständige rohe
-//! Session-YAML und die Header-Diagnose. Nur für die versteckte Admin-Ansicht
-//! gedacht (siehe `dashboard/src/features/sdk-debug`); wird nirgends persistiert
-//! und nur gebaut/gesendet, solange das Panel geöffnet ist.
+//! Unlike `TelemetrySnapshot` (curated whitelist), this snapshot delivers
+//! EVERYTHING the SDK provides — every variable, the complete raw session
+//! YAML, and the header diagnostics. Intended only for the hidden admin
+//! view (see `dashboard/src/features/sdk-debug`); never persisted and only
+//! built/sent while the panel is open.
 
 use serde::Serialize;
 use ts_rs::TS;
@@ -13,7 +13,7 @@ use crate::iracing_sdk::header::HeaderStatus;
 use crate::iracing_sdk::yaml::decode_raw;
 use crate::iracing_sdk::IRacingClient;
 
-/// Eine einzelne SDK-Variable mit aktuellem Wert, formatiert für die Anzeige.
+/// A single SDK variable with its current value, formatted for display.
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "../shared/")]
 #[serde(rename_all = "camelCase")]
@@ -21,11 +21,11 @@ pub struct VarDump {
     pub name: String,
     pub desc: String,
     pub unit: String,
-    /// "Float", "Int", "Bool", … (Debug-Repräsentation von `VarType`).
+    /// "Float", "Int", "Bool", … (Debug representation of `VarType`).
     pub var_type: String,
     pub count: usize,
-    /// Ein Eintrag pro Array-Element; leer, falls die Variable aktuell
-    /// außerhalb des Frame-Puffers liegt (z.B. unmittelbar nach dem Connect).
+    /// One entry per array element; empty if the variable currently lies
+    /// outside the frame buffer (e.g. right after connecting).
     pub values: Vec<String>,
 }
 
@@ -35,8 +35,8 @@ pub struct VarDump {
 pub struct SdkDebugSnapshot {
     pub header: HeaderStatus,
     pub vars: Vec<VarDump>,
-    /// Vollständiges, ungefiltertes Session-YAML als Text (Anzeige-only,
-    /// wird nicht erneut geparst — siehe `iracing_sdk::yaml::decode_raw`).
+    /// Complete, unfiltered session YAML as text (display-only,
+    /// not parsed again — see `iracing_sdk::yaml::decode_raw`).
     pub session_yaml_raw: String,
 }
 

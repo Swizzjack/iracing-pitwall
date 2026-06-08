@@ -1,6 +1,6 @@
-//! irsdk_varHeader: Descriptor für jede Telemetrie-Variable.
+//! irsdk_varHeader: descriptor for each telemetry variable.
 //!
-//! Layout: 144 Bytes pro Eintrag, numVars Einträge ab header.var_header_offset.
+//! Layout: 144 bytes per entry, numVars entries starting at header.var_header_offset.
 
 use std::collections::HashMap;
 
@@ -50,7 +50,7 @@ pub struct VarDescriptor {
     pub unit: String,
 }
 
-/// Name → Descriptor Lookup. Wird einmal nach Connect aufgebaut.
+/// Name → descriptor lookup. Built once after connecting.
 pub type VarIndex = HashMap<String, VarDescriptor>;
 
 /// Helper: Extract a null-terminated C-style UTF-8 string from bytes.
@@ -62,11 +62,11 @@ fn cstr_from_bytes(b: &[u8]) -> crate::error::Result<String> {
         .map_err(|e| crate::error::BridgeError::SdkRead(format!("UTF-8: {e}")))
 }
 
-/// Parst das varHeader-Array aus dem MMF-Slice.
+/// Parses the varHeader array from the MMF slice.
 ///
 /// # Arguments
-/// * `raw` - Slice beginnend bei `header.var_header_offset`, Länge ≥ `num_vars * 144`.
-/// * `num_vars` - Anzahl Einträge (aus Top-Level-Header).
+/// * `raw` - Slice starting at `header.var_header_offset`, length ≥ `num_vars * 144`.
+/// * `num_vars` - Number of entries (from the top-level header).
 pub fn parse_var_index(raw: &[u8], num_vars: usize) -> crate::error::Result<VarIndex> {
     let expected_len = num_vars.checked_mul(VAR_HEADER_SIZE).ok_or_else(|| {
         crate::error::BridgeError::SdkRead(format!(

@@ -1,17 +1,17 @@
-//! WS-Connection-Counter und Auto-Shutdown-Logik.
+//! WS connection counter and auto-shutdown logic.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::{oneshot, watch};
 
-/// Shared connection counter. Clone-able; alle Klone teilen denselben `watch::Sender`.
+/// Shared connection counter. Cloneable; all clones share the same `watch::Sender`.
 #[derive(Clone)]
 pub struct ClientTracker {
     tx: Arc<watch::Sender<usize>>,
 }
 
-/// RAII-Guard: inkrementiert beim Erstellen, dekrementiert beim Drop.
+/// RAII guard: increments on creation, decrements on drop.
 pub struct ClientGuard {
     tx: Arc<watch::Sender<usize>>,
 }
@@ -35,16 +35,16 @@ impl Drop for ClientGuard {
 }
 
 pub struct LifecycleConfig {
-    /// Wenn true: kein Auto-Shutdown (nützlich für headless-Tests).
+    /// If true: no auto-shutdown (useful for headless tests).
     pub keep_alive: bool,
-    /// Zeit, die der Count auf 0 bleiben muss, bevor Shutdown ausgelöst wird.
+    /// How long the count must stay at 0 before shutdown is triggered.
     pub grace: Duration,
-    /// Zeit, nach der sich die Bridge beendet wenn sich kein Browser verbindet.
+    /// How long to wait before the bridge exits if no browser ever connects.
     pub startup_grace: Duration,
 }
 
-/// Spawne diese Funktion als eigenen Task. Sendet einmal auf `shutdown_tx` wenn
-/// die Bridge beendet werden soll.
+/// Spawn this function as its own task. Sends once on `shutdown_tx` when
+/// the bridge should terminate.
 pub async fn run_watcher(
     mut rx: watch::Receiver<usize>,
     cfg: LifecycleConfig,
@@ -54,7 +54,7 @@ pub async fn run_watcher(
         return;
     }
 
-    // Phase 1: Warte auf erste Verbindung. Timeout = startup_grace.
+    // Phase 1: wait for the first connection. Timeout = startup_grace.
     tokio::select! {
         r = rx.wait_for(|n| *n >= 1) => {
             if r.is_err() { return; } // Sender dropped
@@ -69,10 +69,10 @@ pub async fn run_watcher(
         }
     }
 
-    // Phase 2: Beobachte count. Wenn er auf 0 fällt, starte Grace-Timer.
+    // Phase 2: watch the count. If it drops to 0, start the grace timer.
     loop {
         if rx.wait_for(|n| *n == 0).await.is_err() {
-            return; // Sender dropped, Bridge fährt sowieso herunter
+            return; // Sender dropped, the bridge is shutting down anyway
         }
         tokio::select! {
             _ = tokio::time::sleep(cfg.grace) => {
@@ -85,7 +85,7 @@ pub async fn run_watcher(
             }
             r = rx.wait_for(|n| *n >= 1) => {
                 if r.is_err() { return; }
-                // Client hat sich neu verbunden — weitermachen
+                // A client reconnected — keep going
             }
         }
     }

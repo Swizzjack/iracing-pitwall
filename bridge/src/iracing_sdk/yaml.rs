@@ -1,22 +1,22 @@
 //! YAML SessionInfo: ISO-8859-1 decode + serde_yaml parse.
 //!
-//! Wichtig: encoding_rs::WINDOWS_1252 ist eine strikte Obermenge von
-//! ISO-8859-1 für den druckbaren Bereich; 0x80-0x9F werden für unsere
-//! Zwecke (Fahrernamen, Track-Namen) nicht benötigt.
+//! Important: encoding_rs::WINDOWS_1252 is a strict superset of ISO-8859-1
+//! for the printable range; 0x80-0x9F aren't needed for our purposes
+//! (driver names, track names).
 //!
-//! iRacing erzeugt in Abschnitten wie CarSetup, CameraInfo, RadioInfo
-//! manchmal nicht-valides YAML (z.B. Fahrzeugnamen mit Doppelpunkten,
-//! unkorrekte Block-Nodes). Da serde_yaml das gesamte Dokument parst,
-//! filtern wir vorab alle nicht benötigten Top-Level-Sektionen heraus.
+//! In sections like CarSetup, CameraInfo, RadioInfo, iRacing sometimes
+//! emits invalid YAML (e.g. vehicle names containing colons, malformed
+//! block nodes). Since serde_yaml parses the whole document, we filter
+//! out all unneeded top-level sections beforehand.
 
 use crate::error::{BridgeError, Result};
 use crate::iracing_sdk::types::SessionInfoYaml;
 
 const KEEP: &[&str] = &["WeekendInfo", "SessionInfo", "DriverInfo", "SplitTimeInfo"];
 
-/// Behält nur die in `keep` aufgeführten Top-Level-Sektionen des YAML-Dokuments.
-/// Eine Top-Level-Sektion beginnt mit einer Zeile ohne führende Whitespace-Zeichen,
-/// die nicht mit `#` oder `-` startet und einen `:` enthält.
+/// Keeps only the top-level sections of the YAML document listed in `keep`.
+/// A top-level section starts with a line that has no leading whitespace,
+/// doesn't start with `#` or `-`, and contains a `:`.
 fn keep_sections(yaml: &str, keep: &[&str]) -> String {
     let mut out = String::with_capacity(yaml.len() / 2);
     let mut in_section = false;

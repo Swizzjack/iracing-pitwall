@@ -1,7 +1,7 @@
-//! Zentrale Fehlertypen für Bridge-Komponenten.
+//! Central error types for bridge components.
 //!
-//! Konvention: jede Modulgrenze nimmt `BridgeError` oder einen spezifischeren
-//! Subtyp an; `?` im Hot-Path, keine `unwrap()`/`panic!()`.
+//! Convention: every module boundary takes `BridgeError` or a more specific
+//! subtype; use `?` in the hot path, never `unwrap()`/`panic!()`.
 
 use thiserror::Error;
 

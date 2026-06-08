@@ -1,8 +1,8 @@
-//! Top-level irsdk_header layout (Offset 0 im MMF).
+//! Top-level irsdk_header layout (offset 0 in the MMF).
 //!
-//! Quelle: irsdk_defines.h (iRacing.com Motorsport Simulations, 2013).
-//! Padding und Alignment wurden per `#[repr(C)]` + packed gehalten, um
-//! bitgenau dem C-Layout zu entsprechen.
+//! Source: irsdk_defines.h (iRacing.com Motorsport Simulations, 2013).
+//! Padding and alignment are kept via `#[repr(C)]` + packed to match
+//! the C layout bit-for-bit.
 
 use serde::Serialize;
 use ts_rs::TS;
@@ -41,7 +41,7 @@ impl Header {
     }
 }
 
-/// Abgeflachte Diagnose-View fürs Dashboard (Debug-Overlay).
+/// Flattened diagnostic view for the dashboard (debug overlay).
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "../shared/")]
 #[serde(rename_all = "camelCase")]

@@ -5,11 +5,11 @@ pub struct Config {
     pub ws_port: u16,
     pub telemetry_hz: u32,
     pub standings_hz: u32,
-    /// Deaktiviert Auto-Shutdown (BRIDGE_KEEP_ALIVE=1).
+    /// Disables auto-shutdown (BRIDGE_KEEP_ALIVE=1).
     pub keep_alive: bool,
-    /// Sekunden ohne Client nach erstem Connect bevor Shutdown (BRIDGE_SHUTDOWN_GRACE_SEC).
+    /// Seconds without a client after the first connect before shutdown (BRIDGE_SHUTDOWN_GRACE_SEC).
     pub shutdown_grace_sec: u64,
-    /// Sekunden Startup-Timeout wenn sich nie ein Client verbindet (BRIDGE_STARTUP_GRACE_SEC).
+    /// Startup-timeout seconds if no client ever connects (BRIDGE_STARTUP_GRACE_SEC).
     pub startup_grace_sec: u64,
 }
 

@@ -1,8 +1,8 @@
-//! YAML-SessionInfo Datenmodell.
+//! YAML SessionInfo data model.
 //!
-//! Nur die Felder, die wir fürs Dashboard brauchen. iRacing emittet deutlich
-//! mehr (CameraInfo, RadioInfo, CarSetup); wir ignorieren diese via
-//! `#[serde(default)]` und `deny_unknown_fields` NICHT setzen.
+//! Only the fields the dashboard needs. iRacing emits much more
+//! (CameraInfo, RadioInfo, CarSetup); we ignore those via `#[serde(default)]`
+//! and by NOT setting `deny_unknown_fields`.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;

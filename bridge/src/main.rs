@@ -21,8 +21,8 @@ use anyhow::Result;
 use anyhow::Context;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
-/// Prüft per TCP-Connect ob bereits eine Bridge-Instanz auf diesem Port läuft.
-/// Schneller als port-binding und funktioniert ohne Windows-spezifische APIs.
+/// Checks via TCP connect whether a bridge instance is already running on this port.
+/// Faster than port-binding and works without Windows-specific APIs.
 fn is_already_running(port: u16) -> bool {
     std::net::TcpStream::connect_timeout(
         &SocketAddr::from(([127, 0, 0, 1], port)),
@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
         cfg.ws_port
     );
 
-    // Läuft bereits eine Instanz? → Browser öffnen und beenden.
+    // Already an instance running? → open the browser and exit.
     if is_already_running(cfg.ws_port) {
         log::info!(
             "bridge already running on port {} — opening browser and exiting",
@@ -228,6 +228,7 @@ fn connect_and_run(
     let mut yaml_cache: Option<iracing_sdk::types::SessionInfoYaml> = None;
     let mut pit_tracker = telemetry::pit_tracker::PitTracker::default();
     let mut sector_tracker = telemetry::sector_tracker::SectorTracker::default();
+    let mut p2p_tracker = telemetry::p2p_tracker::P2pTracker::default();
     let mut finish_tracker = telemetry::finish_tracker::FinishTracker::default();
     let mut session_transition = telemetry::session_transition::SessionTransitionDetector::default();
     let mut recorder = telemetry::track_recorder::TrackRecorder::new(cache_dir);
@@ -317,10 +318,11 @@ fn connect_and_run(
                     &y.session_info.sessions,
                 );
                 pit_tracker.update(&client, sub_id).context("pit_tracker update")?;
+                p2p_tracker.update(&client, sub_id).context("p2p_tracker update")?;
                 finish_tracker.observe(&client, sub_id, session_num)
                     .context("finish_tracker observe")?;
                 let snap = telemetry::StandingsSnapshot::build(
-                    &client, y, &pit_tracker, &sector_tracker, &mut finish_tracker,
+                    &client, y, &pit_tracker, &sector_tracker, &p2p_tracker, &mut finish_tracker,
                 )
                 .context("standings build")?;
                 let _ = sector_tracker.drain_completed_laps();

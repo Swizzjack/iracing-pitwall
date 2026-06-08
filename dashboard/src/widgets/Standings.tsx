@@ -11,10 +11,10 @@ interface Props {
   playerCarIdx: number | null
 }
 
-const DEFAULT_ORDER: ColId[] = ['pos', 'car', 'num', 'driver', 'lap', 'last', 'best', 'gap', 'pit', 'tire', 'sectors', 'rating']
+const DEFAULT_ORDER: ColId[] = ['pos', 'car', 'num', 'driver', 'lap', 'last', 'best', 'gap', 'pit', 'tire', 'p2p', 'sectors', 'rating']
 const TH_LABELS: Record<ColId, string> = {
   pos: 'P', car: 'Car', num: '#', driver: 'Driver', lap: 'Lap',
-  last: 'Last', best: 'Best', gap: 'Gap', pit: 'Pit', tire: 'TC',
+  last: 'Last', best: 'Best', gap: 'Gap', pit: 'Pit', tire: 'TC', p2p: 'P2P',
   sectors: '', rating: 'Rating',
 }
 
@@ -99,6 +99,7 @@ const fmtGap = (g: number | null) => {
   return `+${g.toFixed(3)}`
 }
 const fmtSec = (s: number) => s.toFixed(1) + 's'
+const fmtP2P = (s: number) => s.toFixed(1)
 
 
 const TIRE_COMPOUNDS: Record<number, { label: string; bg: string }> = {
@@ -184,6 +185,11 @@ function compareEntries(a: StandingEntry, b: StandingEntry, col: ColId, dir: Sor
     }
     case 'pit': return sign * ((a.pitStops ?? 0) - (b.pitStops ?? 0))
     case 'tire': return sign * ((a.tireCompound ?? -1) - (b.tireCompound ?? -1))
+    case 'p2p': {
+      const av = a.p2pRemaining ?? Infinity
+      const bv = b.p2pRemaining ?? Infinity
+      return sign * (av - bv)
+    }
     case 'rating': return sign * (a.irating - b.irating)
     case 'sectors': return 0
     default: return 0
@@ -348,6 +354,19 @@ export function Standings({ snap, playerCarIdx }: Props) {
         <td key="pit">{e.currentPitRoadSec != null ? `● ${fmtSec(e.currentPitRoadSec)}` : ''}</td>
       ]
       case 'tire': return [<td key="tire"><TireBadge compound={e.tireCompound} /></td>]
+      case 'p2p': {
+        const style = e.p2pActive
+          ? { color: '#22c55e', fontWeight: 600 }
+          : e.p2pCooldown != null
+            ? { color: '#ef4444', fontWeight: 600 }
+            : undefined
+        const text = e.p2pCooldown != null
+          ? fmtP2P(e.p2pCooldown)
+          : e.p2pRemaining != null ? fmtP2P(e.p2pRemaining) : '—'
+        return [
+          <td key="p2p" title={e.p2pCooldown != null ? 'P2P cooldown' : undefined} style={style}>{text}</td>
+        ]
+      }
       case 'sectors': return Array.from({ length: nSectors }, (_, si) => {
         const last = e.lastSectorTimes[si]
         const pb = e.bestSectorTimes[si]

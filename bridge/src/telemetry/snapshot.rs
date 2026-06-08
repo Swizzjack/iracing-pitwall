@@ -1,7 +1,7 @@
-//! 60-Hz-Snapshot: kuratierte Whitelist der Telemetrie-Variablen.
+//! 60 Hz snapshot: curated whitelist of telemetry variables.
 //!
-//! Whitelist-Design: nur Felder, die das Dashboard konsumiert. Jede
-//! neue Anzeige braucht ein Feld hier + in `build()` die Extraction.
+//! Whitelist design: only fields the dashboard consumes. Every new
+//! display needs a field here plus the extraction in `build()`.
 
 use crate::error::Result;
 use crate::iracing_sdk::IRacingClient;
@@ -147,8 +147,8 @@ pub struct TelemetrySnapshot {
 }
 
 impl TelemetrySnapshot {
-    /// Extrahiert die Whitelist-Felder aus dem aktuellen Frame-Buffer.
-    /// Muss nach `IRacingClient::wait_for_frame()` aufgerufen werden.
+    /// Extracts the whitelisted fields from the current frame buffer.
+    /// Must be called after `IRacingClient::wait_for_frame()`.
     pub fn build(client: &IRacingClient) -> Result<Self> {
         let player_car_idx = client.get_i32("PlayerCarIdx")?;
 

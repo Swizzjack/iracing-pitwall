@@ -1,11 +1,12 @@
-//! Normalisierte Telemetrie-Datenmodelle für das Dashboard.
+//! Normalized telemetry data models for the dashboard.
 //!
-//! - `snapshot`: 60-Hz-Stream (Pedals, Speed, Gear, Fuel, Tires, ...)
-//! - `standings`: 4-Hz-Stream (CarIdx-basierte Rangliste, Gaps)
-//! - `track_recorder`: VelocityXY-Integration, Disk-Cache
-//! - `track_map`: 15-Hz TrackMap-Snapshot (Autopos. + Streckenform)
+//! - `snapshot`: 60 Hz stream (Pedals, Speed, Gear, Fuel, Tires, ...)
+//! - `standings`: 4 Hz stream (CarIdx-based ranking, gaps)
+//! - `track_recorder`: VelocityXY integration, disk cache
+//! - `track_map`: 15 Hz TrackMap snapshot (car positions + track shape)
 
 pub mod finish_tracker;
+pub mod p2p_tracker;
 pub mod pit_tracker;
 pub mod sdk_debug;
 pub mod sector_tracker;

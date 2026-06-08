@@ -14,12 +14,12 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
-export type ColId = 'pos' | 'car' | 'num' | 'driver' | 'lap' | 'last' | 'best' | 'gap' | 'pit' | 'tire' | 'sectors' | 'rating'
+export type ColId = 'pos' | 'car' | 'num' | 'driver' | 'lap' | 'last' | 'best' | 'gap' | 'pit' | 'tire' | 'p2p' | 'sectors' | 'rating'
 
 const COL_LABELS: Record<ColId, string> = {
   pos: 'Position', car: 'Car', num: '#', driver: 'Driver', lap: 'Lap',
   last: 'Last Lap', best: 'Best Lap', gap: 'Gap', pit: 'Pit Stop',
-  tire: 'Tire', sectors: 'Sectors', rating: 'Rating',
+  tire: 'Tire', p2p: 'P2P', sectors: 'Sectors', rating: 'Rating',
 }
 
 interface RowProps {

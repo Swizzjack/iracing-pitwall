@@ -1,7 +1,7 @@
-//! Windows-Event-Primitive für DataValidEvent.
+//! Windows event primitives for DataValidEvent.
 //!
-//! Kapselt `WaitForSingleObject` + Timeout-Semantik, damit `reader.rs`
-//! plattform-agnostische Signatur hat.
+//! Wraps `WaitForSingleObject` + timeout semantics so that `reader.rs`
+//! has a platform-agnostic signature.
 
 use crate::error::Result;
 

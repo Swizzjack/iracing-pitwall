@@ -4,6 +4,7 @@ use crate::error::Result;
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::iracing_sdk::IRacingClient;
 use crate::telemetry::finish_tracker::FinishTracker;
+use crate::telemetry::p2p_tracker::P2pTracker;
 use crate::telemetry::pit_tracker::PitTracker;
 use crate::telemetry::sector_tracker::SectorTracker;
 use serde::Serialize;
@@ -50,6 +51,15 @@ pub struct StandingEntry {
     pub gap_to_leader: Option<f32>,
     pub on_pit_road: bool,
     pub tire_compound: Option<i32>,
+    /// Remaining push-to-pass seconds (decoded from `CarIdxP2P_Count`, which the
+    /// SDK declares as `Int` but actually stores as raw Float32 bits × 10).
+    /// `None` if the car has no P2P system / no valid value.
+    pub p2p_remaining: Option<f32>,
+    /// True while the driver is actively using push-to-pass (`CarIdxP2P_Status`).
+    pub p2p_active: bool,
+    /// Seconds remaining in the mandatory post-deactivation cooldown (e.g. the
+    /// SF23's 100s P2P delay), or `None` if not currently on cooldown.
+    pub p2p_cooldown: Option<f32>,
     pub pit_stops: u32,
     pub last_pit_road_sec: Option<f32>,
     pub current_pit_road_sec: Option<f32>,
@@ -71,6 +81,7 @@ impl StandingsSnapshot {
         yaml: &SessionInfoYaml,
         pit_tracker: &PitTracker,
         sector_tracker: &SectorTracker,
+        p2p_tracker: &P2pTracker,
         finish_tracker: &mut FinishTracker,
     ) -> Result<Self> {
         let session_num = client.get_i32("SessionNum")?;
@@ -100,6 +111,15 @@ impl StandingsSnapshot {
         let tire_compounds = client.get_i32_array("CarIdxTireCompound").ok();
         // Kept for diagnostic logging only — not used for display.
         let team_inc = client.get_i32_array("CarIdxTeamIncidentCount").ok();
+        // P2P: CarIdxP2P_Count is declared as Int but actually carries raw Float32
+        // bits (× 10 = seconds remaining) — see project_p2p_encoding memory.
+        // EXCEPT for the player's own slot, which iRacing populates with a plain
+        // integer (clean seconds, like the scalar `P2P_Count`) rather than the
+        // float-bits encoding used for opponents — read that scalar instead.
+        let p2p_counts = client.get_i32_array("CarIdxP2P_Count").ok();
+        let p2p_status = client.get_bool_array("CarIdxP2P_Status").ok();
+        let player_car_idx = client.get_i32("PlayerCarIdx").ok();
+        let player_p2p_count = client.get_i32("P2P_Count").ok();
 
         // Build a car_idx → ResultPosition lookup for fastest-time fallback.
         let results_map: HashMap<i32, &crate::iracing_sdk::types::ResultPosition> = current_session
@@ -207,6 +227,18 @@ impl StandingsSnapshot {
                     .as_ref()
                     .and_then(|s| s.split_whitespace().next().map(str::to_string));
 
+                let p2p_remaining = if player_car_idx == Some(driver.car_idx) {
+                    player_p2p_count.filter(|&c| c >= 0).map(|c| c as f32)
+                } else {
+                    p2p_counts.as_ref()
+                        .and_then(|arr| arr.get(idx).copied())
+                        .map(|raw| f32::from_bits(raw as u32) * 10.0)
+                        .filter(|s| s.is_finite() && *s >= 0.0)
+                };
+                let p2p_active = p2p_status.as_ref()
+                    .and_then(|arr| arr.get(idx).copied())
+                    .unwrap_or(false);
+
                 let pit = pit_tracker.get(driver.car_idx);
                 let sectors = sector_tracker.get(driver.car_idx);
                 let live_entry = StandingEntry {
@@ -230,6 +262,9 @@ impl StandingsSnapshot {
                     on_pit_road: *on_pit.get(idx).unwrap_or(&false),
                     tire_compound: tire_compounds.as_ref().and_then(|arr| arr.get(idx).copied())
                         .filter(|&c| c >= 0),
+                    p2p_remaining,
+                    p2p_active,
+                    p2p_cooldown: p2p_tracker.cooldown_remaining(driver.car_idx),
                     pit_stops: pit.map_or(0, |p| p.pit_stops),
                     last_pit_road_sec: pit.and_then(|p| p.last_pit_road_sec),
                     current_pit_road_sec: pit.and_then(|p| p.current_pit_road_sec),

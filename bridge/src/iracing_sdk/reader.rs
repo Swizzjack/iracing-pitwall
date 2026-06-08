@@ -1,9 +1,9 @@
-//! MMF-basierter Shared-Memory-Reader.
+//! MMF-based shared-memory reader.
 //!
 //! Lifecycle:
-//! 1. `IRacingClient::connect()` öffnet MMF + DataValidEvent, baut var_index auf
-//! 2. `wait_for_frame()` blockiert auf Event, kopiert aktuellen varBuf (Triple-Buffer)
-//! 3. `get_*()` liefert Werte aus dem lokalen Puffer
+//! 1. `IRacingClient::connect()` opens the MMF + DataValidEvent, builds the var_index
+//! 2. `wait_for_frame()` blocks on the event, copies the current varBuf (triple buffer)
+//! 3. `get_*()` returns values from the local buffer
 
 use crate::error::{BridgeError, Result};
 use crate::iracing_sdk::header::Header;
@@ -53,8 +53,8 @@ pub struct IRacingClient {
 unsafe impl Send for IRacingClient {}
 
 impl IRacingClient {
-    /// Öffnet `Local\IRSDKMemMapFileName` und `Local\IRSDKDataValidEvent`.
-    /// Parst sofort den var_index (kein separater Aufruf nötig).
+    /// Opens `Local\IRSDKMemMapFileName` and `Local\IRSDKDataValidEvent`.
+    /// Immediately parses the var_index (no separate call needed).
     pub fn connect() -> Result<Self> {
         #[cfg(windows)]
         {

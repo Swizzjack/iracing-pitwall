@@ -38,7 +38,7 @@ export function EditToolbar({ editing, visible, onToggleEdit, onAdd, onReset }: 
           <button
             className="header-btn"
             onClick={() => setAddOpen((o) => !o)}
-            title="Widget hinzufügen"
+            title="Add widget"
           >
             +
           </button>
@@ -60,8 +60,8 @@ export function EditToolbar({ editing, visible, onToggleEdit, onAdd, onReset }: 
       {editing && (
         <button
           className="header-btn header-btn-danger"
-          onClick={() => { if (confirm('Layout auf Defaults zurücksetzen?')) onReset() }}
-          title="Layout zurücksetzen"
+          onClick={() => { if (confirm('Reset layout to defaults?')) onReset() }}
+          title="Reset layout"
         >
           ↺
         </button>
