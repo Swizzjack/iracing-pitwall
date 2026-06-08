@@ -51,4 +51,20 @@ pub struct HeaderStatus {
     pub tick_rate: i32,
     pub num_vars: i32,
     pub buf_len: i32,
+    pub num_buf: i32,
+    pub session_info_update: i32,
+}
+
+impl HeaderStatus {
+    pub fn from_header(h: &Header) -> Self {
+        Self {
+            connected: h.is_connected(),
+            ver: h.ver,
+            tick_rate: h.tick_rate,
+            num_vars: h.num_vars,
+            buf_len: h.buf_len,
+            num_buf: h.num_buf,
+            session_info_update: h.session_info_update,
+        }
+    }
 }

@@ -37,14 +37,22 @@ fn keep_sections(yaml: &str, keep: &[&str]) -> String {
 }
 
 pub fn decode_and_parse(raw: &[u8]) -> Result<SessionInfoYaml> {
+    let filtered = keep_sections(&decode_raw(raw), KEEP);
+    serde_yaml::from_str::<SessionInfoYaml>(&filtered)
+        .map_err(|e| BridgeError::YamlParse(e.to_string()))
+}
+
+/// Decodes the raw session-info bytes (Windows-1252/ISO-8859-1, NUL-padded tail)
+/// to a string, WITHOUT filtering any sections. Used by the debug/admin view to
+/// show the complete YAML exactly as iRacing emits it (including the sections
+/// that are normally stripped because they sometimes contain invalid YAML —
+/// see module docs). Display-only; never fed back into a YAML parser.
+pub fn decode_raw(raw: &[u8]) -> String {
     let (decoded, _enc, had_errors) = encoding_rs::WINDOWS_1252.decode(raw);
     if had_errors {
         log::warn!("YAML decode had replacement errors (non-ISO-8859-1 bytes encountered)");
     }
-    let trimmed = decoded.trim_end_matches('\0');
-    let filtered = keep_sections(trimmed, KEEP);
-    serde_yaml::from_str::<SessionInfoYaml>(&filtered)
-        .map_err(|e| BridgeError::YamlParse(e.to_string()))
+    decoded.trim_end_matches('\0').to_string()
 }
 
 #[cfg(test)]

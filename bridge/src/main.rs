@@ -59,6 +59,7 @@ async fn main() -> Result<()> {
     let (std_tx, std_rx) = watch::channel(None::<telemetry::StandingsSnapshot>);
     let (si_tx, si_rx) = watch::channel(None::<iracing_sdk::types::SessionInfoYaml>);
     let (tm_tx, tm_rx) = watch::channel(None::<telemetry::TrackMapSnapshot>);
+    let (dbg_tx, dbg_rx) = watch::channel(None::<telemetry::SdkDebugSnapshot>);
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<ws::client::ClientMessage>();
 
     // --- Race Engineer channels ---
@@ -103,6 +104,7 @@ async fn main() -> Result<()> {
         standings: std_rx,
         session_info: si_rx,
         track_map: tm_rx,
+        sdk_debug: dbg_rx,
         update: upd_rx,
         command: cmd_tx,
         engineer_cmd: eng_cmd_tx,
@@ -113,7 +115,7 @@ async fn main() -> Result<()> {
 
     #[cfg(windows)]
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = sdk_loop(tel_tx, std_tx, si_tx, tm_tx, cmd_rx, eng_state_tx) {
+        if let Err(e) = sdk_loop(tel_tx, std_tx, si_tx, tm_tx, dbg_tx, cmd_rx, eng_state_tx) {
             log::error!("sdk_loop terminated: {e}");
         }
     });
@@ -121,7 +123,7 @@ async fn main() -> Result<()> {
     #[cfg(not(windows))]
     {
         log::warn!("Non-Windows build: iRacing SDK reader disabled.");
-        drop((tel_tx, std_tx, si_tx, tm_tx, cmd_rx, eng_state_tx));
+        drop((tel_tx, std_tx, si_tx, tm_tx, dbg_tx, cmd_rx, eng_state_tx));
     }
 
     let (addr, listener) = match ws::bind(cfg.ws_port).await {
@@ -180,13 +182,14 @@ fn sdk_loop(
     std_tx: watch::Sender<Option<telemetry::StandingsSnapshot>>,
     si_tx: watch::Sender<Option<iracing_sdk::types::SessionInfoYaml>>,
     tm_tx: watch::Sender<Option<telemetry::TrackMapSnapshot>>,
+    dbg_tx: watch::Sender<Option<telemetry::SdkDebugSnapshot>>,
     mut cmd_rx: mpsc::UnboundedReceiver<ws::client::ClientMessage>,
     eng_state_tx: mpsc::UnboundedSender<race_engineer::state::EngineerState>,
 ) -> Result<()> {
     const RETRY_DELAY: Duration = Duration::from_secs(3);
 
     loop {
-        match connect_and_run(&tel_tx, &std_tx, &si_tx, &tm_tx, &mut cmd_rx, &eng_state_tx) {
+        match connect_and_run(&tel_tx, &std_tx, &si_tx, &tm_tx, &dbg_tx, &mut cmd_rx, &eng_state_tx) {
             Ok(()) => return Ok(()),
             Err(e) => {
                 if matches!(
@@ -209,6 +212,7 @@ fn connect_and_run(
     std_tx: &watch::Sender<Option<telemetry::StandingsSnapshot>>,
     si_tx: &watch::Sender<Option<iracing_sdk::types::SessionInfoYaml>>,
     tm_tx: &watch::Sender<Option<telemetry::TrackMapSnapshot>>,
+    dbg_tx: &watch::Sender<Option<telemetry::SdkDebugSnapshot>>,
     cmd_rx: &mut mpsc::UnboundedReceiver<ws::client::ClientMessage>,
     eng_state_tx: &mpsc::UnboundedSender<race_engineer::state::EngineerState>,
 ) -> Result<()> {
@@ -231,6 +235,10 @@ fn connect_and_run(
     let mut eng_aggregator = race_engineer::state::StateAggregator::default();
     let mut last_standings: Option<telemetry::StandingsSnapshot> = None;
     let mut frame: u64 = 0;
+    // Hidden admin/debug view: only build+send the full SDK dump while a
+    // client has it open (walking every SDK variable every tick is wasteful
+    // when nobody is looking).
+    let mut debug_enabled = false;
 
     loop {
         match client.wait_for_frame() {
@@ -252,6 +260,12 @@ fn connect_and_run(
             use ws::client::ClientMessage;
             match cmd {
                 ClientMessage::DeleteTrackMap { track_key } => recorder.delete_cached(&track_key),
+                ClientMessage::SetSdkDebug { enabled } => {
+                    debug_enabled = enabled;
+                    if !enabled {
+                        let _ = dbg_tx.send(None);
+                    }
+                }
                 _ => {} // Engineer commands are routed directly to eng_cmd_tx in handler
             }
         }
@@ -275,6 +289,12 @@ fn connect_and_run(
         if frame % 6 == 0 && frame % 15 != 0 {
             let eng_state = eng_aggregator.build_state(&tel, last_standings.as_ref());
             let _ = eng_state_tx.send(eng_state);
+        }
+
+        // Hidden admin/debug view ≈ 4 Hz — only while a client has it open.
+        if debug_enabled && frame % 15 == 0 {
+            let snap = telemetry::SdkDebugSnapshot::build(&client);
+            let _ = dbg_tx.send(Some(snap));
         }
 
         // Every 15 frames ≈ 4 Hz → standings + session-info

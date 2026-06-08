@@ -276,7 +276,7 @@ async fn handle_command(
         }
 
         // SDK-loop commands — should not arrive here, ignore
-        ClientMessage::DeleteTrackMap { .. } => {}
+        ClientMessage::DeleteTrackMap { .. } | ClientMessage::SetSdkDebug { .. } => {}
     }
 }
 

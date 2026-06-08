@@ -5,6 +5,8 @@ import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
 import type { StandingsSnapshot } from '@shared/StandingsSnapshot'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
 import type { TrackMapSnapshot } from '@shared/TrackMapSnapshot'
+import type { SdkDebugSnapshot } from '@shared/SdkDebugSnapshot'
+import { SdkDebugPanel } from './features/sdk-debug/SdkDebugPanel'
 import { WsClient, type ConnectionState } from './ws/Client'
 import { Dashboard } from './layout/Dashboard'
 import { EditToolbar } from './layout/EditToolbar'
@@ -21,6 +23,11 @@ import type { EngineerServerMsg } from './features/race-engineer/types'
 import './App.css'
 
 const UI_SCALE_KEY = 'iracing-ui-scale-v1'
+const DEV_MODE_KEY = 'iracing-dev-mode-v1'
+
+function loadDevMode(): boolean {
+  return localStorage.getItem(DEV_MODE_KEY) === '1'
+}
 
 function loadUiScale(): number {
   const raw = localStorage.getItem(UI_SCALE_KEY)
@@ -60,6 +67,12 @@ function App() {
   const [showGlobalSettings, setShowGlobalSettings] = useState(false)
   const [showEngineer, setShowEngineer] = useState(false)
 
+  // Hidden admin/debug view — unlocked via Ctrl+Shift+D, persisted locally.
+  // Not advertised anywhere in the UI; the header button only appears once unlocked.
+  const [devMode, setDevMode] = useState<boolean>(loadDevMode)
+  const [showSdkDebug, setShowSdkDebug] = useState(false)
+  const [sdkDebug, setSdkDebug] = useState<SdkDebugSnapshot | null>(null)
+
   // Race Engineer settings
   const [engineerSettings, setEngineerSettings] = useState<EngineerSettings>(loadEngineerSettings)
   const engineerSettingsRef = useRef<EngineerSettings>(engineerSettings)
@@ -80,6 +93,24 @@ function App() {
     document.documentElement.style.setProperty('--ui-scale', String(uiScale))
     localStorage.setItem(UI_SCALE_KEY, String(uiScale))
   }, [uiScale])
+
+  // Hidden unlock: Ctrl+Shift+D toggles the admin/debug mode and persists it.
+  // Deliberately undocumented — not surfaced anywhere in the visible UI.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault()
+        setDevMode((prev) => {
+          const next = !prev
+          localStorage.setItem(DEV_MODE_KEY, next ? '1' : '0')
+          if (!next) setShowSdkDebug(false)
+          return next
+        })
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   // Initialize engineer service with a command sender
   useEffect(() => {
@@ -148,6 +179,9 @@ function App() {
           break
         case 'updateAvailable':
           setAvailableUpdate({ latestVersion: msg.latestVersion, releaseUrl: msg.releaseUrl })
+          break
+        case 'sdkDebug':
+          setSdkDebug(msg.snapshot)
           break
         case 'sdkStatus':
         case 'disconnected':
@@ -264,6 +298,14 @@ function App() {
             onClick={() => { setShowEngineer(v => !v); setShowGlobalSettings(false) }}
             title="Race Engineer"
           >🎙</button>
+          {/* Hidden admin/debug view — only present once unlocked via Ctrl+Shift+D */}
+          {devMode && (
+            <button
+              className={`fs-btn${showSdkDebug ? ' header-btn-active' : ''}`}
+              onClick={() => setShowSdkDebug(v => !v)}
+              title="SDK Admin / Debug View"
+            >🐞</button>
+          )}
           <button
             className={`fs-btn${showGlobalSettings ? ' header-btn-active' : ''}`}
             onClick={() => { setShowGlobalSettings(v => !v); setShowEngineer(false) }}
@@ -294,6 +336,15 @@ function App() {
             onClose={() => setShowEngineer(false)}
           />
         </div>
+      )}
+
+      {/* Hidden admin/debug view — full-screen overlay, only reachable via the unlocked header button */}
+      {devMode && showSdkDebug && (
+        <SdkDebugPanel
+          snapshot={sdkDebug}
+          send={(msg) => clientRef.current?.send(msg)}
+          onClose={() => setShowSdkDebug(false)}
+        />
       )}
 
       <SettingsDrawer

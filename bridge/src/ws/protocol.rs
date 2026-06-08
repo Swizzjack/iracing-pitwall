@@ -5,7 +5,7 @@
 use crate::iracing_sdk::header::HeaderStatus;
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::race_engineer::voice_manager::VoiceInfo;
-use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
+use crate::telemetry::{SdkDebugSnapshot, StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -18,6 +18,11 @@ pub enum ServerMessage {
 
     #[serde(rename_all = "camelCase")]
     SdkStatus { status: HeaderStatus },
+
+    /// Full live SDK dump for the hidden admin/debug view — only sent while
+    /// a client has it enabled via `ClientMessage::SetSdkDebug`.
+    #[serde(rename_all = "camelCase")]
+    SdkDebug { snapshot: SdkDebugSnapshot },
 
     #[serde(rename_all = "camelCase")]
     Telemetry { snapshot: TelemetrySnapshot },

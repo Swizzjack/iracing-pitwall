@@ -7,6 +7,7 @@
 
 pub mod finish_tracker;
 pub mod pit_tracker;
+pub mod sdk_debug;
 pub mod sector_tracker;
 pub mod session_transition;
 pub mod snapshot;
@@ -14,6 +15,7 @@ pub mod standings;
 pub mod track_map;
 pub mod track_recorder;
 
+pub use sdk_debug::SdkDebugSnapshot;
 pub use snapshot::TelemetrySnapshot;
 pub use standings::StandingsSnapshot;
 pub use track_map::TrackMapSnapshot;

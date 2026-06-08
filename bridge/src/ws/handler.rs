@@ -24,7 +24,7 @@ use tokio::sync::{broadcast, oneshot, watch};
 use crate::error::{BridgeError, Result};
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::race_engineer::{EngineerAudioTx, EngineerCmdTx};
-use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
+use crate::telemetry::{SdkDebugSnapshot, StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
 use crate::update::UpdateInfo;
 use crate::ws::client::ClientMessage;
 use crate::ws::lifecycle::ClientTracker;
@@ -40,6 +40,9 @@ pub struct BridgeState {
     pub standings: watch::Receiver<Option<StandingsSnapshot>>,
     pub session_info: watch::Receiver<Option<SessionInfoYaml>>,
     pub track_map: watch::Receiver<Option<TrackMapSnapshot>>,
+    /// Hidden admin/debug feed — full live SDK dump. Only populated while a
+    /// client has it enabled via `ClientMessage::SetSdkDebug`.
+    pub sdk_debug: watch::Receiver<Option<SdkDebugSnapshot>>,
     pub update: watch::Receiver<Option<UpdateInfo>>,
     /// SDK-loop commands (DeleteTrackMap)
     pub command: tokio::sync::mpsc::UnboundedSender<ClientMessage>,
@@ -102,7 +105,12 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
     let mut std_rx = state.standings;
     let mut si_rx = state.session_info;
     let mut tm_rx = state.track_map;
+    let mut dbg_rx = state.sdk_debug;
     let mut upd_rx = state.update;
+    // No initial replay for the admin/debug feed — mark whatever is currently
+    // there as seen so we don't blast a (possibly stale, possibly large) dump
+    // at connect time. The client explicitly opts in via `SetSdkDebug`.
+    let _ = dbg_rx.borrow_and_update();
     // Subscribe to engineer broadcast before any await
     let mut eng_rx = state.engineer_audio.subscribe();
 
@@ -199,6 +207,13 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
                 let snap = tm_rx.borrow_and_update().clone();
                 if let Some(s) = snap {
                     send_msg(&mut sink, &ServerMessage::TrackMap { snapshot: s }).await?;
+                }
+            }
+            r = dbg_rx.changed() => {
+                r.map_err(|_| BridgeError::WebSocket("sdk_debug channel closed".into()))?;
+                let snap = dbg_rx.borrow_and_update().clone();
+                if let Some(s) = snap {
+                    send_msg(&mut sink, &ServerMessage::SdkDebug { snapshot: s }).await?;
                 }
             }
             r = upd_rx.changed() => {

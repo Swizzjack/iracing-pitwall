@@ -30,6 +30,13 @@ type Handle = HANDLE;
 #[cfg(not(windows))]
 type Handle = *mut ();
 
+/// Extracts a null-terminated string from bytes, replacing invalid UTF-8
+/// sequences rather than failing (used for display-only debug output).
+fn cstr_lossy(b: &[u8]) -> String {
+    let len = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+    String::from_utf8_lossy(&b[..len]).into_owned()
+}
+
 pub struct IRacingClient {
     mmf_handle: Handle,
     /// Base pointer of the mapped view (cast from MEMORY_MAPPED_VIEW_ADDRESS.Value)
@@ -319,6 +326,75 @@ impl IRacingClient {
 
     pub fn get_bitfield_array(&self, name: &str) -> Result<&[u32]> {
         self.read::<u32>(name, VarType::BitField)
+    }
+
+    /// Dumps every variable known to the SDK with its current value(s), formatted
+    /// as strings for display in the debug/admin view. Read-only, never persisted.
+    /// Sorted by name for a stable, deterministic ordering.
+    pub fn dump_all_vars(&self) -> Vec<crate::telemetry::sdk_debug::VarDump> {
+        use crate::telemetry::sdk_debug::VarDump;
+
+        let mut names: Vec<&String> = self.var_index.keys().collect();
+        names.sort();
+
+        names
+            .into_iter()
+            .map(|name| {
+                let desc = &self.var_index[name];
+                let values = self.format_var_values(desc);
+                VarDump {
+                    name: desc.name.clone(),
+                    desc: desc.desc.clone(),
+                    unit: desc.unit.clone(),
+                    var_type: format!("{:?}", desc.var_type),
+                    count: desc.count,
+                    values,
+                }
+            })
+            .collect()
+    }
+
+    /// Formats the current bytes for a variable as a `Vec<String>` (one entry per
+    /// array element). Returns an empty vec if the variable is out of bounds —
+    /// this can happen transiently right after connect, before the first frame.
+    fn format_var_values(&self, desc: &crate::iracing_sdk::var_header::VarDescriptor) -> Vec<String> {
+        let elem_size = desc.var_type.size_bytes();
+        let byte_len = match desc.count.checked_mul(elem_size) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+        let end = match desc.offset.checked_add(byte_len) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+        if end > self.frame.len() {
+            return Vec::new();
+        }
+        let bytes = &self.frame[desc.offset..end];
+
+        match desc.var_type {
+            VarType::Char => vec![cstr_lossy(bytes)],
+            VarType::Bool => bytes.iter().map(|&b| (b != 0).to_string()).collect(),
+            VarType::Int => bytes
+                .chunks_exact(4)
+                .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]).to_string())
+                .collect(),
+            VarType::BitField => bytes
+                .chunks_exact(4)
+                .map(|c| format!("0x{:08X}", u32::from_le_bytes([c[0], c[1], c[2], c[3]])))
+                .collect(),
+            VarType::Float => bytes
+                .chunks_exact(4)
+                .map(|c| format!("{:.4}", f32::from_le_bytes([c[0], c[1], c[2], c[3]])))
+                .collect(),
+            VarType::Double => bytes
+                .chunks_exact(8)
+                .map(|c| {
+                    let arr: [u8; 8] = c.try_into().expect("chunks_exact(8)");
+                    format!("{:.6}", f64::from_le_bytes(arr))
+                })
+                .collect(),
+        }
     }
 
     pub fn get_bool_array(&self, name: &str) -> Result<Vec<bool>> {

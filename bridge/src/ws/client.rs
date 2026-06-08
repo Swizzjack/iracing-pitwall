@@ -10,6 +10,12 @@ pub enum ClientMessage {
     #[serde(rename_all = "camelCase")]
     DeleteTrackMap { track_key: String },
 
+    /// Hidden admin/debug view: enable/disable the live full-SDK-dump feed.
+    /// Gated so the bridge only builds `SdkDebugSnapshot` while someone is
+    /// actually looking at it (it walks every SDK variable every tick).
+    #[serde(rename_all = "camelCase")]
+    SetSdkDebug { enabled: bool },
+
     // --- Race Engineer ---
 
     EngineerGetStatus,
