@@ -84,6 +84,9 @@ impl SessionPhase {
 // ---------------------------------------------------------------------------
 
 /// Flags relevant to the race engineer.
+// Part of the rule-author state surface: some fields have no consuming rule
+// yet (e.g. per-sector yellows aren't available in iRacing V1).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct FlagState {
     /// True if there is a full-course caution / yellow flag active.
@@ -142,6 +145,9 @@ impl FlagState {
 // Damage state (limited in iRacing)
 // ---------------------------------------------------------------------------
 
+// V1 placeholder surface: only `overheating` carries a real signal so far;
+// the remaining fields wait for damage telemetry rules.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct DamageState {
     pub has_aero: bool,
@@ -175,6 +181,8 @@ pub enum PitState {
     #[default]
     None,
     InLane,
+    /// Not yet derivable from telemetry (needs pit-box position detection).
+    #[allow(dead_code)]
     InBox,
 }
 
@@ -182,6 +190,9 @@ pub enum PitState {
 // EngineerState — the full snapshot passed to the rule engine
 // ---------------------------------------------------------------------------
 
+// State surface for rule authors — fields without a consuming rule yet are
+// kept deliberately (they're populated and cost nothing per tick).
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct EngineerState {
     // Session

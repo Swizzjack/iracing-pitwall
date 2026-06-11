@@ -6,7 +6,10 @@ use crate::iracing_sdk::IRacingClient;
 use std::collections::HashMap;
 
 /// Data emitted for every car that crosses the S/F line.
-/// Drained via `drain_completed_laps()` and forwarded to the lap buffer.
+/// Drained via `drain_completed_laps()`; the SDK loop currently discards the
+/// result (consumer is the planned lap-history persistence), so the fields
+/// are only read by tests for now.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct LapCompletion {
     pub car_idx: i32,

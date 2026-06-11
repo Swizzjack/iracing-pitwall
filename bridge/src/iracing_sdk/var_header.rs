@@ -105,10 +105,11 @@ pub fn parse_var_index(raw: &[u8], num_vars: usize) -> crate::error::Result<VarI
             ))
         })?;
 
-        // Extract strings (trimmed at null bytes)
-        let name = cstr_from_bytes(&record[16..48])?;
-        let desc = cstr_from_bytes(&record[48..112])?;
-        let unit = cstr_from_bytes(&record[112..144])?;
+        // Extract strings (trimmed at null bytes).
+        // Layout after the 16-byte numeric block: name[32] desc[64] unit[32].
+        let name = cstr_from_bytes(&record[16..16 + IRSDK_MAX_STRING])?;
+        let desc = cstr_from_bytes(&record[48..48 + IRSDK_MAX_DESC])?;
+        let unit = cstr_from_bytes(&record[112..112 + IRSDK_MAX_STRING])?;
 
         // Skip padding records (empty name)
         if name.is_empty() {

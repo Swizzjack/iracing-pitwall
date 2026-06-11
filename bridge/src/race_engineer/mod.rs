@@ -34,7 +34,6 @@ use voice_manager::{list_voices, VoiceInfo};
 // Public channel type aliases (used in main.rs and handler.rs)
 // ---------------------------------------------------------------------------
 
-pub type EngineerStateTx = mpsc::UnboundedSender<EngineerState>;
 pub type EngineerStateRx = mpsc::UnboundedReceiver<EngineerState>;
 pub type EngineerCmdTx = mpsc::UnboundedSender<ClientMessage>;
 pub type EngineerCmdRx = mpsc::UnboundedReceiver<ClientMessage>;

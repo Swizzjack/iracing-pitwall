@@ -2,7 +2,6 @@
 //!
 //! tagged Enum, serde `type` Discriminator → TypeScript Discriminated Union.
 
-use crate::iracing_sdk::header::HeaderStatus;
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::race_engineer::voice_manager::VoiceInfo;
 use crate::telemetry::{SdkDebugSnapshot, StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
@@ -15,9 +14,6 @@ use ts_rs::TS;
 pub enum ServerMessage {
     #[serde(rename_all = "camelCase")]
     Hello { bridge_version: String, lan_url: Option<String> },
-
-    #[serde(rename_all = "camelCase")]
-    SdkStatus { status: HeaderStatus },
 
     /// Full live SDK dump for the hidden admin/debug view — only sent while
     /// a client has it enabled via `ClientMessage::SetSdkDebug`.
@@ -38,9 +34,6 @@ pub enum ServerMessage {
 
     #[serde(rename_all = "camelCase")]
     TrackMap { snapshot: TrackMapSnapshot },
-
-    #[serde(rename_all = "camelCase")]
-    Disconnected { reason: String },
 
     #[serde(rename_all = "camelCase")]
     UpdateAvailable { latest_version: String, release_url: String },

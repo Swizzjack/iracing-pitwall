@@ -185,10 +185,6 @@ impl IRacingClient {
         self.header.session_info_update
     }
 
-    pub fn var_index(&self) -> &VarIndex {
-        &self.var_index
-    }
-
     /// No-op: var_index is already built during `connect()`. Kept for API symmetry.
     pub fn parse_var_index(&mut self) -> Result<()> {
         Ok(())

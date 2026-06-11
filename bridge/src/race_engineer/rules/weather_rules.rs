@@ -33,6 +33,7 @@ pub struct TrackTempChangeRule {
 /// Fires N minutes before rain arrives (if forecast data available).
 /// In iRacing V1, forecast is empty, so this rule never fires — left for future use.
 pub struct RainForecastWarningRule {
+    #[allow(dead_code)] // read once forecast data exists
     minutes: u32,
 }
 

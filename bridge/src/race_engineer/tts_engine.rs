@@ -94,7 +94,7 @@ impl TtsEngine {
 
         #[cfg(target_os = "windows")]
         {
-            use std::os::windows::process::CommandExt;
+            // tokio::process::Command exposes creation_flags directly on Windows.
             const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             cmd.creation_flags(BELOW_NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW);

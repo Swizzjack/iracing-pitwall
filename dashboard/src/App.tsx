@@ -183,9 +183,6 @@ function App() {
         case 'sdkDebug':
           setSdkDebug(msg.snapshot)
           break
-        case 'sdkStatus':
-        case 'disconnected':
-          break
       }
     })
     client.connect()
