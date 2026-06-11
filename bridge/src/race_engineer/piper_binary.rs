@@ -84,15 +84,20 @@ fn extract_zip(zip_bytes: &[u8], dest: &Path) -> Result<()> {
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
-        let raw_name = file.name().to_owned();
+
+        // enclosed_name() rejects entries that would escape the target dir
+        // (absolute paths, `..` components) — zip-slip protection.
+        let Some(safe_path) = file.enclosed_name() else {
+            return Err(anyhow!("zip entry escapes target dir: {}", file.name()));
+        };
 
         // Strip leading "piper/" prefix if present
-        let rel = raw_name
-            .strip_prefix("piper/")
-            .or_else(|| raw_name.strip_prefix("piper\\"))
-            .unwrap_or(&raw_name);
+        let rel = safe_path
+            .strip_prefix("piper")
+            .map(|p| p.to_path_buf())
+            .unwrap_or(safe_path);
 
-        if rel.is_empty() || rel.ends_with('/') || rel.ends_with('\\') {
+        if rel.as_os_str().is_empty() || file.is_dir() {
             continue;
         }
 
@@ -133,6 +138,12 @@ pub fn download_file(
     let mut data = Vec::new();
     let mut buf = vec![0u8; CHUNK];
 
+    // Throttle progress messages: every chunk (64 KiB) would mean thousands of
+    // WS broadcasts per voice download. One update per interval is plenty for a
+    // progress bar; a final message after the loop reports the exact total.
+    const PROGRESS_INTERVAL: Duration = Duration::from_millis(250);
+    let mut last_progress: Option<std::time::Instant> = None;
+
     loop {
         use std::io::Read;
         let n = reader.read(&mut buf).context("read response body")?;
@@ -140,14 +151,24 @@ pub fn download_file(
             break;
         }
         data.extend_from_slice(&buf[..n]);
-        let _ = progress_tx.send(DownloadProgress {
-            bytes_downloaded: data.len() as u64,
-            bytes_total: content_length,
-            stage: "downloading".into(),
-            target: target.into(),
-            target_id: target_id.map(|s| s.to_string()),
-        });
+        if last_progress.map_or(true, |t| t.elapsed() >= PROGRESS_INTERVAL) {
+            last_progress = Some(std::time::Instant::now());
+            let _ = progress_tx.send(DownloadProgress {
+                bytes_downloaded: data.len() as u64,
+                bytes_total: content_length,
+                stage: "downloading".into(),
+                target: target.into(),
+                target_id: target_id.map(|s| s.to_string()),
+            });
+        }
     }
+    let _ = progress_tx.send(DownloadProgress {
+        bytes_downloaded: data.len() as u64,
+        bytes_total: content_length,
+        stage: "downloading".into(),
+        target: target.into(),
+        target_id: target_id.map(|s| s.to_string()),
+    });
 
     if data.is_empty() {
         return Err(anyhow!("empty response from {url}"));

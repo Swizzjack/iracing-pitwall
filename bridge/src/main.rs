@@ -90,7 +90,9 @@ async fn main() -> Result<()> {
             log::info!("update available: v{}", i.latest_version);
             let _ = upd_tx.send(Some(i));
         }
-        std::future::pending::<()>().await;
+        // Task ends here. The WS handler tolerates the closed channel, and
+        // late-connecting clients still see the last value via the initial
+        // `borrow_and_update()` replay.
     });
 
     let lan_url = detect_lan_ip().map(|ip| format!("http://{}:{}/", ip, cfg.ws_port));

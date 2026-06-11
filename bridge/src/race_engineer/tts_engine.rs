@@ -1,14 +1,14 @@
 //! TTS synthesis via a local Piper subprocess.
 //!
-//! One `TtsEngine` per engineer task. Keeps the piper process alive
-//! between calls while the same voice is in use; kills it after 30 s of
-//! idleness or on a voice change.
-
-use std::time::Instant;
+//! One `TtsEngine` per engineer task. Each request spawns a fresh piper
+//! process (text on stdin, EOF triggers synthesis, raw PCM on stdout).
+//! The spawn + ONNX model load adds noticeable latency per callout; if that
+//! ever matters, the fix is a persistent piper process with delimited
+//! output — until then, per-request spawning keeps the lifecycle trivial.
 
 use anyhow::{anyhow, Context, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 
 use super::paths::{piper_exe, voice_config, voice_model};
 use super::piper_binary::is_installed as piper_installed;
@@ -21,11 +21,8 @@ fn read_sample_rate(voice_id: &str) -> Option<u32> {
     json["audio"]["sample_rate"].as_u64().map(|v| v as u32)
 }
 
-pub struct TtsEngine {
-    current_voice: Option<String>,
-    piper_process: Option<Child>,
-    last_used: Instant,
-}
+#[derive(Default)]
+pub struct TtsEngine;
 
 pub struct SynthesisRequest {
     pub text: String,
@@ -63,11 +60,7 @@ impl From<anyhow::Error> for TtsError {
 
 impl TtsEngine {
     pub fn new() -> Self {
-        Self {
-            current_voice: None,
-            piper_process: None,
-            last_used: Instant::now(),
-        }
+        Self
     }
 
     pub async fn synthesize(&mut self, req: SynthesisRequest) -> Result<SynthesisResult, TtsError> {
@@ -78,16 +71,7 @@ impl TtsEngine {
             return Err(TtsError::VoiceNotInstalled(req.voice_id.clone()));
         }
 
-        // Kill existing process if voice changed or idle >30s
-        let voice_changed = self.current_voice.as_deref() != Some(&req.voice_id);
-        let idle_too_long = self.last_used.elapsed().as_secs() > 30;
-        if voice_changed || idle_too_long {
-            self.shutdown();
-        }
-
         let pcm = self.run_synthesis(&req.voice_id, &req.text).await?;
-        self.current_voice = Some(req.voice_id.clone());
-        self.last_used = Instant::now();
 
         let sample_rate = read_sample_rate(&req.voice_id).unwrap_or(22050);
         let num_samples = pcm.len() / 2;
@@ -165,12 +149,5 @@ impl TtsEngine {
             pcm.len()
         );
         Ok(pcm)
-    }
-
-    pub fn shutdown(&mut self) {
-        if let Some(mut child) = self.piper_process.take() {
-            let _ = child.start_kill();
-        }
-        self.current_voice = None;
     }
 }

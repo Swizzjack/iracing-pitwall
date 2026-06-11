@@ -24,14 +24,17 @@ pub enum ServerMessage {
     #[serde(rename_all = "camelCase")]
     SdkDebug { snapshot: SdkDebugSnapshot },
 
+    // Telemetry/SessionInfo are boxed: their inline size dominates the enum
+    // (≈720 B) and every send would copy it by value. serde and ts-rs treat
+    // Box<T> transparently, so the wire format is unchanged.
     #[serde(rename_all = "camelCase")]
-    Telemetry { snapshot: TelemetrySnapshot },
+    Telemetry { snapshot: Box<TelemetrySnapshot> },
 
     #[serde(rename_all = "camelCase")]
     Standings { snapshot: StandingsSnapshot },
 
     #[serde(rename_all = "camelCase")]
-    SessionInfo { info: SessionInfoYaml },
+    SessionInfo { info: Box<SessionInfoYaml> },
 
     #[serde(rename_all = "camelCase")]
     TrackMap { snapshot: TrackMapSnapshot },

@@ -111,9 +111,12 @@ impl FlagState {
         const CAUTION_WAVING: u32 = 0x8000;
         // "Driver's black flags" — set in global SessionFlags for the local player only
         const REPAIR: u32 = 0x00100000; // meatball flag
-        // CarIdxSessionFlags bits (per-car)
-        const CAR_BLUE: u32 = 0x0400;
-        const CAR_DEBRIS: u32 = 0x0800;
+        // CarIdxSessionFlags carries the same irsdk_Flags bit layout as the
+        // global field (irsdk_defines.h: blue=0x0020, debris=0x0040). The
+        // previous values 0x0400/0x0800 were greenHeld/tenToGo and could
+        // never represent blue/debris.
+        const CAR_BLUE: u32 = 0x0020;
+        const CAR_DEBRIS: u32 = 0x0040;
 
         let any_yellow = (session_flags & (YELLOW | YELLOW_WAVING | CAUTION | CAUTION_WAVING)) != 0;
         let any_red = (session_flags & RED) != 0;

@@ -277,55 +277,60 @@ impl IRacingClient {
     }
 
     // ── Typed getters ────────────────────────────────────────────────────────
+    //
+    // All getters decode via `from_le_bytes` on the raw frame bytes. The frame
+    // is a plain `Vec<u8>`, so no alignment can be assumed — a `&[u8] → &[T]`
+    // cast would be UB whenever the allocation or the SDK offset isn't aligned
+    // for `T`. Scalars decode allocation-free; arrays collect into a `Vec`
+    // (≤ 64 elements, negligible at our tick rates).
 
     pub fn get_f32(&self, name: &str) -> Result<f32> {
-        self.read::<f32>(name, VarType::Float).map(|s| s[0])
+        self.var_bytes(name, VarType::Float)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
     pub fn get_f64(&self, name: &str) -> Result<f64> {
-        self.read::<f64>(name, VarType::Double).map(|s| s[0])
+        self.var_bytes(name, VarType::Double).map(|b| {
+            f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
+        })
     }
 
     pub fn get_i32(&self, name: &str) -> Result<i32> {
-        self.read::<i32>(name, VarType::Int).map(|s| s[0])
+        self.var_bytes(name, VarType::Int)
+            .map(|b| i32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
     pub fn get_bool(&self, name: &str) -> Result<bool> {
-        let desc = self
-            .var_index
-            .get(name)
-            .ok_or_else(|| BridgeError::SdkRead(format!("unknown var '{name}'")))?;
-        if desc.var_type != VarType::Bool {
-            return Err(BridgeError::SdkRead(format!(
-                "var '{name}': expected Bool, got {:?}",
-                desc.var_type
-            )));
-        }
-        let end = desc.offset + 1;
-        if end > self.frame.len() {
-            return Err(BridgeError::SdkRead(format!(
-                "var '{name}': out of bounds (offset={} frame={})",
-                desc.offset,
-                self.frame.len()
-            )));
-        }
-        Ok(self.frame[desc.offset] != 0)
+        self.var_bytes(name, VarType::Bool).map(|b| b[0] != 0)
     }
 
     pub fn get_bitfield(&self, name: &str) -> Result<u32> {
-        self.read::<u32>(name, VarType::BitField).map(|s| s[0])
+        self.var_bytes(name, VarType::BitField)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
-    pub fn get_f32_array(&self, name: &str) -> Result<&[f32]> {
-        self.read::<f32>(name, VarType::Float)
+    pub fn get_f32_array(&self, name: &str) -> Result<Vec<f32>> {
+        self.var_bytes(name, VarType::Float).map(|b| {
+            b.chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect()
+        })
     }
 
-    pub fn get_i32_array(&self, name: &str) -> Result<&[i32]> {
-        self.read::<i32>(name, VarType::Int)
+    pub fn get_i32_array(&self, name: &str) -> Result<Vec<i32>> {
+        self.var_bytes(name, VarType::Int).map(|b| {
+            b.chunks_exact(4)
+                .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect()
+        })
     }
 
-    pub fn get_bitfield_array(&self, name: &str) -> Result<&[u32]> {
-        self.read::<u32>(name, VarType::BitField)
+    pub fn get_bitfield_array(&self, name: &str) -> Result<Vec<u32>> {
+        self.var_bytes(name, VarType::BitField).map(|b| {
+            b.chunks_exact(4)
+                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect()
+        })
     }
 
     /// Dumps every variable known to the SDK with its current value(s), formatted
@@ -398,36 +403,16 @@ impl IRacingClient {
     }
 
     pub fn get_bool_array(&self, name: &str) -> Result<Vec<bool>> {
-        let desc = self
-            .var_index
-            .get(name)
-            .ok_or_else(|| BridgeError::SdkRead(format!("unknown var '{name}'")))?;
-        if desc.var_type != VarType::Bool {
-            return Err(BridgeError::SdkRead(format!(
-                "var '{name}': expected Bool, got {:?}",
-                desc.var_type
-            )));
-        }
-        let end = desc.offset + desc.count;
-        if end > self.frame.len() {
-            return Err(BridgeError::SdkRead(format!(
-                "var '{name}': out of bounds (offset={} count={} frame={})",
-                desc.offset,
-                desc.count,
-                self.frame.len()
-            )));
-        }
-        Ok(self.frame[desc.offset..end]
-            .iter()
-            .map(|&b| b != 0)
-            .collect())
+        self.var_bytes(name, VarType::Bool)
+            .map(|b| b.iter().map(|&v| v != 0).collect())
     }
 
     // ── Private helper ───────────────────────────────────────────────────────
 
-    /// Returns a `&[T]` view into `self.frame` for the named variable.
-    /// Verifies the stored `VarType` matches `expected`.
-    fn read<T: Copy>(&self, name: &str, expected: VarType) -> Result<&[T]> {
+    /// Returns the raw frame bytes for the named variable (all array elements).
+    /// Verifies the stored `VarType` matches `expected` and that the variable
+    /// (including a scalar's single element) lies within the frame buffer.
+    fn var_bytes(&self, name: &str, expected: VarType) -> Result<&[u8]> {
         let desc = self
             .var_index
             .get(name)
@@ -438,9 +423,10 @@ impl IRacingClient {
                 desc.var_type
             )));
         }
-        let elem_size = std::mem::size_of::<T>();
+        let elem_size = expected.size_bytes();
         let byte_len = desc
             .count
+            .max(1)
             .checked_mul(elem_size)
             .ok_or_else(|| BridgeError::SdkRead(format!("var '{name}': byte length overflow")))?;
         let end = desc
@@ -455,13 +441,7 @@ impl IRacingClient {
                 self.frame.len()
             )));
         }
-        let bytes = &self.frame[desc.offset..end];
-        // SAFETY: The iRacing SDK lays out all variables at naturally aligned offsets
-        // (multiples of the type's size). Vec<u8> on Windows x86_64 is allocated with
-        // ≥16-byte alignment by the global allocator, so bytes.as_ptr() is properly
-        // aligned for any T with align ≤ 8 (all iRacing types). The slice covers
-        // exactly `count` elements of size `elem_size`.
-        Ok(unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const T, desc.count) })
+        Ok(&self.frame[desc.offset..end])
     }
 }
 

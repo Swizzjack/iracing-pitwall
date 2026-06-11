@@ -21,7 +21,7 @@ use rust_embed::RustEmbed;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, oneshot, watch};
 
-use crate::error::{BridgeError, Result};
+use crate::error::Result;
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::race_engineer::{EngineerAudioTx, EngineerCmdTx};
 use crate::telemetry::{SdkDebugSnapshot, StandingsSnapshot, TelemetrySnapshot, TrackMapSnapshot};
@@ -131,13 +131,13 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
     let init_upd = upd_rx.borrow_and_update().clone();
 
     if let Some(s) = init_tel {
-        send_msg(&mut sink, &ServerMessage::Telemetry { snapshot: s }).await?;
+        send_msg(&mut sink, &ServerMessage::Telemetry { snapshot: Box::new(s) }).await?;
     }
     if let Some(s) = init_std {
         send_msg(&mut sink, &ServerMessage::Standings { snapshot: s }).await?;
     }
     if let Some(i) = init_si {
-        send_msg(&mut sink, &ServerMessage::SessionInfo { info: i }).await?;
+        send_msg(&mut sink, &ServerMessage::SessionInfo { info: Box::new(i) }).await?;
     }
     if let Some(s) = init_tm {
         send_msg(&mut sink, &ServerMessage::TrackMap { snapshot: s }).await?;
@@ -151,6 +151,17 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
 
     // Request engineer status on connection
     let _ = state.engineer_cmd.send(ClientMessage::EngineerGetStatus);
+
+    // A closed channel only means its producer is gone (e.g. the update task
+    // after its one-shot check, or the SDK loop on non-Windows builds). That
+    // must not kill the connection — disable the branch and keep serving.
+    let mut tel_open = true;
+    let mut std_open = true;
+    let mut si_open = true;
+    let mut tm_open = true;
+    let mut dbg_open = true;
+    let mut upd_open = true;
+    let mut eng_open = true;
 
     loop {
         tokio::select! {
@@ -181,43 +192,43 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
                     Some(Ok(_)) => {} // ping/pong/binary/close
                 }
             }
-            r = tel_rx.changed() => {
-                r.map_err(|_| BridgeError::WebSocket("telemetry channel closed".into()))?;
+            r = tel_rx.changed(), if tel_open => {
+                if r.is_err() { tel_open = false; continue; }
                 let snap = tel_rx.borrow_and_update().clone();
                 if let Some(s) = snap {
-                    send_msg(&mut sink, &ServerMessage::Telemetry { snapshot: s }).await?;
+                    send_msg(&mut sink, &ServerMessage::Telemetry { snapshot: Box::new(s) }).await?;
                 }
             }
-            r = std_rx.changed() => {
-                r.map_err(|_| BridgeError::WebSocket("standings channel closed".into()))?;
+            r = std_rx.changed(), if std_open => {
+                if r.is_err() { std_open = false; continue; }
                 let snap = std_rx.borrow_and_update().clone();
                 if let Some(s) = snap {
                     send_msg(&mut sink, &ServerMessage::Standings { snapshot: s }).await?;
                 }
             }
-            r = si_rx.changed() => {
-                r.map_err(|_| BridgeError::WebSocket("session_info channel closed".into()))?;
+            r = si_rx.changed(), if si_open => {
+                if r.is_err() { si_open = false; continue; }
                 let info = si_rx.borrow_and_update().clone();
                 if let Some(i) = info {
-                    send_msg(&mut sink, &ServerMessage::SessionInfo { info: i }).await?;
+                    send_msg(&mut sink, &ServerMessage::SessionInfo { info: Box::new(i) }).await?;
                 }
             }
-            r = tm_rx.changed() => {
-                r.map_err(|_| BridgeError::WebSocket("track_map channel closed".into()))?;
+            r = tm_rx.changed(), if tm_open => {
+                if r.is_err() { tm_open = false; continue; }
                 let snap = tm_rx.borrow_and_update().clone();
                 if let Some(s) = snap {
                     send_msg(&mut sink, &ServerMessage::TrackMap { snapshot: s }).await?;
                 }
             }
-            r = dbg_rx.changed() => {
-                r.map_err(|_| BridgeError::WebSocket("sdk_debug channel closed".into()))?;
+            r = dbg_rx.changed(), if dbg_open => {
+                if r.is_err() { dbg_open = false; continue; }
                 let snap = dbg_rx.borrow_and_update().clone();
                 if let Some(s) = snap {
                     send_msg(&mut sink, &ServerMessage::SdkDebug { snapshot: s }).await?;
                 }
             }
-            r = upd_rx.changed() => {
-                r.map_err(|_| BridgeError::WebSocket("update channel closed".into()))?;
+            r = upd_rx.changed(), if upd_open => {
+                if r.is_err() { upd_open = false; continue; }
                 let upd = upd_rx.borrow_and_update().clone();
                 if let Some(u) = upd {
                     send_msg(&mut sink, &ServerMessage::UpdateAvailable {
@@ -226,7 +237,7 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
                     }).await?;
                 }
             }
-            r = eng_rx.recv() => {
+            r = eng_rx.recv(), if eng_open => {
                 match r {
                     Ok(msg) => {
                         send_msg(&mut sink, &msg).await?;
@@ -236,7 +247,7 @@ async fn handle_socket_inner(socket: WebSocket, state: BridgeState) -> Result<()
                         // Non-fatal: skip lagged audio messages
                     }
                     Err(broadcast::error::RecvError::Closed) => {
-                        return Err(BridgeError::WebSocket("engineer channel closed".into()));
+                        eng_open = false;
                     }
                 }
             }
@@ -250,20 +261,29 @@ async fn send_msg(sink: &mut WsSink, msg: &ServerMessage) -> Result<()> {
     Ok(())
 }
 
+/// Converts embedded asset data to a response body without copying:
+/// release builds embed assets as `Cow::Borrowed(&'static [u8])`.
+fn asset_body(data: std::borrow::Cow<'static, [u8]>) -> axum::body::Bytes {
+    match data {
+        std::borrow::Cow::Borrowed(b) => axum::body::Bytes::from_static(b),
+        std::borrow::Cow::Owned(v) => axum::body::Bytes::from(v),
+    }
+}
+
 async fn static_handler(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
     if let Some(file) = DashboardAssets::get(path) {
         let mime = file.metadata.mimetype().to_owned();
-        return ([(header::CONTENT_TYPE, mime)], file.data.into_owned()).into_response();
+        return ([(header::CONTENT_TYPE, mime)], asset_body(file.data)).into_response();
     }
 
     // SPA fallback: any unknown path serves index.html
     if let Some(file) = DashboardAssets::get("index.html") {
         return (
             [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-            file.data.into_owned(),
+            asset_body(file.data),
         )
             .into_response();
     }

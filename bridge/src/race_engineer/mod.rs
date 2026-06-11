@@ -64,7 +64,14 @@ pub async fn run_engineer_task(
         tokio::select! {
             // --- incoming telemetry state ---
             maybe_state = state_rx.recv() => {
-                let Some(current) = maybe_state else { break; };
+                let Some(mut current) = maybe_state else { break; };
+                // Collapse any backlog to the newest state. While a synthesis
+                // runs (or an install used to block this loop), 10 Hz states
+                // queue up — ticking each of them afterwards would fire rules
+                // against stale data in a burst.
+                while let Ok(newer) = state_rx.try_recv() {
+                    current = newer;
+                }
 
                 let events = dispatcher.tick(&current, previous_state.as_ref());
                 previous_state = Some(current.clone());
@@ -139,83 +146,91 @@ async fn handle_command(
             let _ = audio_tx.send(msg);
         }
 
+        // Installs run in their own task: a download takes tens of seconds and
+        // must not block the select loop (state ticks, other commands).
         ClientMessage::EngineerInstallPiper => {
-            let (prog_tx, mut prog_rx) = mpsc::unbounded_channel::<mod_types::DownloadProgress>();
-            let audio_tx2 = audio_tx.clone();
+            let audio_tx = audio_tx.clone();
+            tokio::spawn(async move {
+                let (prog_tx, mut prog_rx) = mpsc::unbounded_channel::<mod_types::DownloadProgress>();
+                let audio_tx2 = audio_tx.clone();
 
-            // Forward progress messages concurrently while install runs
-            let progress_fwd = tokio::spawn(async move {
-                while let Some(p) = prog_rx.recv().await {
-                    let _ = audio_tx2.send(ServerMessage::EngineerInstallProgress {
-                        target: p.target,
-                        target_id: p.target_id,
-                        bytes_downloaded: p.bytes_downloaded as u32,
-                        bytes_total: p.bytes_total.map(|b| b as u32),
-                        stage: p.stage,
-                    });
+                // Forward progress messages concurrently while install runs
+                let progress_fwd = tokio::spawn(async move {
+                    while let Some(p) = prog_rx.recv().await {
+                        let _ = audio_tx2.send(ServerMessage::EngineerInstallProgress {
+                            target: p.target,
+                            target_id: p.target_id,
+                            bytes_downloaded: p.bytes_downloaded as u32,
+                            bytes_total: p.bytes_total.map(|b| b as u32),
+                            stage: p.stage,
+                        });
+                    }
+                });
+
+                let install_result = tokio::task::spawn_blocking(move || piper_binary::install(prog_tx))
+                    .await
+                    .unwrap_or_else(|e| Err(anyhow::anyhow!("task panic: {e}")));
+
+                // Drain any remaining progress messages before reporting completion
+                let _ = progress_fwd.await;
+
+                if let Err(ref e) = install_result {
+                    log::error!("Piper install failed: {e:#}");
                 }
+
+                let success = install_result.is_ok() && piper_binary::is_installed();
+                let error_msg = install_result.err().map(|e| format!("{e:#}"));
+                let _ = audio_tx.send(ServerMessage::EngineerInstallComplete {
+                    target: "piper".into(),
+                    target_id: None,
+                    success,
+                    error: if success { None } else { error_msg.or(Some("Installation failed".into())) },
+                });
+                // Refresh status
+                let _ = audio_tx.send(build_status_msg());
             });
-
-            let install_result = tokio::task::spawn_blocking(move || piper_binary::install(prog_tx))
-                .await
-                .unwrap_or_else(|e| Err(anyhow::anyhow!("task panic: {e}")));
-
-            // Drain any remaining progress messages before reporting completion
-            let _ = progress_fwd.await;
-
-            if let Err(ref e) = install_result {
-                log::error!("Piper install failed: {e:#}");
-            }
-
-            let success = install_result.is_ok() && piper_binary::is_installed();
-            let error_msg = install_result.err().map(|e| format!("{e:#}"));
-            let _ = audio_tx.send(ServerMessage::EngineerInstallComplete {
-                target: "piper".into(),
-                target_id: None,
-                success,
-                error: if success { None } else { error_msg.or(Some("Installation failed".into())) },
-            });
-            // Refresh status
-            let _ = audio_tx.send(build_status_msg());
         }
 
         ClientMessage::EngineerInstallVoice { voice_id } => {
-            let (prog_tx, mut prog_rx) =
-                mpsc::unbounded_channel::<mod_types::DownloadProgress>();
-            let audio_tx2 = audio_tx.clone();
-            let vid = voice_id.clone();
+            let audio_tx = audio_tx.clone();
+            tokio::spawn(async move {
+                let (prog_tx, mut prog_rx) =
+                    mpsc::unbounded_channel::<mod_types::DownloadProgress>();
+                let audio_tx2 = audio_tx.clone();
+                let vid = voice_id.clone();
 
-            let progress_fwd = tokio::spawn(async move {
-                while let Some(p) = prog_rx.recv().await {
-                    let _ = audio_tx2.send(ServerMessage::EngineerInstallProgress {
-                        target: p.target,
-                        target_id: p.target_id,
-                        bytes_downloaded: p.bytes_downloaded as u32,
-                        bytes_total: p.bytes_total.map(|b| b as u32),
-                        stage: p.stage,
-                    });
+                let progress_fwd = tokio::spawn(async move {
+                    while let Some(p) = prog_rx.recv().await {
+                        let _ = audio_tx2.send(ServerMessage::EngineerInstallProgress {
+                            target: p.target,
+                            target_id: p.target_id,
+                            bytes_downloaded: p.bytes_downloaded as u32,
+                            bytes_total: p.bytes_total.map(|b| b as u32),
+                            stage: p.stage,
+                        });
+                    }
+                });
+
+                let install_result = tokio::task::spawn_blocking(move || voice_manager::install_voice(&vid, prog_tx))
+                    .await
+                    .unwrap_or_else(|e| Err(anyhow::anyhow!("task panic: {e}")));
+
+                let _ = progress_fwd.await;
+
+                if let Err(ref e) = install_result {
+                    log::error!("Voice install failed ({voice_id}): {e:#}");
                 }
+
+                let success = install_result.is_ok() && voice_manager::is_installed(&voice_id);
+                let error_msg = install_result.err().map(|e| format!("{e:#}"));
+                let _ = audio_tx.send(ServerMessage::EngineerInstallComplete {
+                    target: "voice".into(),
+                    target_id: Some(voice_id),
+                    success,
+                    error: if success { None } else { error_msg.or(Some("Voice installation failed".into())) },
+                });
+                let _ = audio_tx.send(build_status_msg());
             });
-
-            let install_result = tokio::task::spawn_blocking(move || voice_manager::install_voice(&vid, prog_tx))
-                .await
-                .unwrap_or_else(|e| Err(anyhow::anyhow!("task panic: {e}")));
-
-            let _ = progress_fwd.await;
-
-            if let Err(ref e) = install_result {
-                log::error!("Voice install failed ({voice_id}): {e:#}");
-            }
-
-            let success = install_result.is_ok() && voice_manager::is_installed(&voice_id);
-            let error_msg = install_result.err().map(|e| format!("{e:#}"));
-            let _ = audio_tx.send(ServerMessage::EngineerInstallComplete {
-                target: "voice".into(),
-                target_id: Some(voice_id),
-                success,
-                error: if success { None } else { error_msg.or(Some("Voice installation failed".into())) },
-            });
-            let _ = audio_tx.send(build_status_msg());
         }
 
         ClientMessage::EngineerUninstallVoice { voice_id } => {

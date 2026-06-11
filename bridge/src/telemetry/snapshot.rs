@@ -51,8 +51,10 @@ pub struct TelemetrySnapshot {
 
     // Per-car session flags for the player (blue flag, drive-through penalty, etc.)
     pub player_car_session_flags: Option<u32>,
-    /// True when iRacing has issued a drive-through penalty for the player's car
-    /// (CarIdxSessionFlags bit 0x10000000 = irsdk_hasDriveThrough).
+    /// True when iRacing has issued a drive-through penalty for the player's car.
+    /// Bit 0x10000000 of CarIdxSessionFlags — note this is NOT part of the
+    /// public irsdk_defines.h enum (which lists 0x10000000 as irsdk_startHidden);
+    /// determined empirically via the SDK debug overlay.
     pub player_has_drivethrough_penalty: bool,
 
     // Tires — 4 corners × (carcass temp L/M/R, pressure, wear L/M/R)
