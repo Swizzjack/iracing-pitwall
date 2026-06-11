@@ -17,7 +17,7 @@ impl Rule for FuelCriticalRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let fl = current.fuel_laps_left;
         if fl <= 0.0 {
             return None; // no valid fuel data
@@ -47,7 +47,7 @@ impl Rule for FuelLowRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let fl = current.fuel_laps_left;
         if fl <= 0.0 || current.total_laps_driven < 1 {
             return None;

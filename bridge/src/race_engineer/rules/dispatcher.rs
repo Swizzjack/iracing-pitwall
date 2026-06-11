@@ -95,7 +95,7 @@ impl RuleDispatcher {
         let now = Instant::now();
         let mut events: Option<Vec<RuleEvent>> = None;
 
-        for rule in &self.rules {
+        for rule in &mut self.rules {
             // Session filter
             if !rule.session_mask().intersects(effective_session_mask) {
                 continue;

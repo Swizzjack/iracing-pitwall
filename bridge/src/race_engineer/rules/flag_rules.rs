@@ -19,7 +19,7 @@ impl Rule for RedFlagRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         // Red flag is stored in FlagState.red (derived from session_flags bit 0x10)
         // Also fire on SessionPhase::RedFlag (same source, belt-and-suspenders)
         let is_red = current.active_flags.red
@@ -48,7 +48,7 @@ impl Rule for YellowFlagOwnSectorRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let now_under = current.active_flags.player_in_yellow_sector;
         let prev_under = prev.map(|p| p.active_flags.player_in_yellow_sector).unwrap_or(false);
         if now_under && !prev_under {
@@ -72,7 +72,7 @@ impl Rule for BlueFlagRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let now_blue = current.active_flags.blue;
         let prev_blue = prev.map(|p| p.active_flags.blue).unwrap_or(false);
         if now_blue && !prev_blue {
@@ -95,7 +95,7 @@ impl Rule for DebrisFlagRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let now_debris = current.active_flags.debris;
         let was_debris = prev.map(|p| p.active_flags.debris).unwrap_or(false);
         if now_debris && !was_debris {
@@ -118,7 +118,7 @@ impl Rule for MeatballFlagRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let now_meatball = current.active_flags.meatball;
         let was_meatball = prev.map(|p| p.active_flags.meatball).unwrap_or(false);
         if now_meatball && !was_meatball {
@@ -141,7 +141,7 @@ impl Rule for GreenFlagRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         let prev_had_yellow =
             prev.active_flags.player_in_yellow_sector || prev.active_flags.red;

@@ -140,7 +140,11 @@ pub struct RuleEvent {
 // ---------------------------------------------------------------------------
 
 /// A single firing rule evaluated per 10 Hz tick.
-pub trait Rule: Send + Sync {
+///
+/// `Send` because the dispatcher lives inside a Tokio task; rules are owned
+/// exclusively by the dispatcher, so stateful rules keep plain fields and
+/// take `&mut self` — no interior mutability needed.
+pub trait Rule: Send {
     fn id(&self) -> &'static str;
     fn priority(&self) -> Priority;
     fn cooldown(&self) -> Duration;
@@ -150,7 +154,7 @@ pub trait Rule: Send + Sync {
     /// Called per tick when all gate conditions pass.
     /// Returns `Some(RuleEvent)` if the rule fires, `None` otherwise.
     fn evaluate(
-        &self,
+        &mut self,
         current: &EngineerState,
         previous: Option<&EngineerState>,
     ) -> Option<RuleEvent>;

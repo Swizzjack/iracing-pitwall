@@ -109,6 +109,142 @@ pub struct SectorTracker {
     pending_completions: Vec<LapCompletion>,
 }
 
+/// One car's observation for a single 60-Hz frame, as fed into `step_car`.
+struct Frame {
+    t: f64,
+    p: f32,
+    on_pit: bool,
+    surface: i32,
+    /// iRacing's authoritative last-lap time for this car; -1.0 if unknown.
+    sdk_last_lap: f32,
+    air_temp: Option<f32>,
+    track_temp: Option<f32>,
+}
+
+/// Advances one car's sector state by one frame. This is the complete
+/// per-car logic of `update()`; the tests drive exactly this function.
+fn step_car(
+    car_idx: i32,
+    state: &mut CarState,
+    frame: &Frame,
+    sector_starts: &[f32],
+    pending: &mut Vec<LapCompletion>,
+) {
+    let n = sector_starts.len();
+
+    // Invalidate running lap if car goes to pit or leaves track.
+    if frame.on_pit || frame.surface == 1 || frame.surface == 2 {
+        state.invalidate_lap(frame.on_pit);
+        state.last_p = frame.p;
+        state.last_t = frame.t;
+        return;
+    }
+
+    let last_p = state.last_p;
+    let last_t = state.last_t;
+
+    // First ever sample — just arm.
+    if last_p < 0.0 {
+        state.last_p = frame.p;
+        state.last_t = frame.t;
+        return;
+    }
+
+    // Detect S/F crossing (p wraps from >0.9 back to <0.1).
+    let sf_cross = last_p > 0.9 && frame.p < 0.1;
+
+    if sf_cross {
+        let t_sf = interpolate_time(last_p, last_t, frame.p, frame.t, 0.0);
+
+        // Finish the last sector of the previous lap.
+        if state.lap_valid && state.sector_idx == n {
+            let dur = (t_sf - state.sector_started_at) as f32;
+            if dur > 0.0 {
+                state.current_lap_sectors.push(dur);
+            }
+        }
+        // Commit the completed lap if we have exactly n+1 sector times.
+        if state.lap_valid && state.current_lap_sectors.len() == n + 1 {
+            let times = state.current_lap_sectors.clone();
+            let pb = &mut state.output.personal_best;
+            if pb.len() < n + 1 {
+                pb.resize(n + 1, None);
+            }
+            for (i, &t) in times.iter().enumerate() {
+                pb[i] = Some(match pb[i] {
+                    Some(best) if best <= t => best,
+                    _ => t,
+                });
+            }
+            state.output.last_sectors = times;
+        }
+
+        // Emit a LapCompletion for every car that had a lap started.
+        if state.current_lap_num > 0 {
+            // Prefer iRacing's authoritative CarIdxLastLapTime over our
+            // self-measured interpolation (which has ~60-Hz noise of ±4-7 ms).
+            // Fall back to interpolated time only when iRacing reports no value
+            // (e.g. off-track invalidation → SDK returns -1).
+            let lap_time = if frame.sdk_last_lap > 0.0 {
+                Some(frame.sdk_last_lap)
+            } else if state.lap_started_at > 0.0 {
+                let t = (t_sf - state.lap_started_at) as f32;
+                if t > 0.0 { Some(t) } else { None }
+            } else {
+                None
+            };
+            let valid = state.lap_valid && state.current_lap_sectors.len() == n + 1;
+            pending.push(LapCompletion {
+                car_idx,
+                lap_num: state.current_lap_num,
+                lap_time_sec: lap_time,
+                sectors: state.current_lap_sectors.clone(),
+                valid,
+                in_lap: state.pit_in_during_lap,
+                session_time: t_sf,
+                air_temp: frame.air_temp,
+                track_temp: frame.track_temp,
+            });
+        }
+
+        // Start fresh lap.
+        state.reset_lap(t_sf, n + 1);
+        state.output.current_lap_sectors.clear();
+        state.last_p = frame.p;
+        state.last_t = frame.t;
+        return;
+    }
+
+    // Not on an active, valid lap — skip sector crossing logic.
+    if !state.lap_valid {
+        state.last_p = frame.p;
+        state.last_t = frame.t;
+        return;
+    }
+
+    // Check if we crossed any sector boundaries between last_p and p.
+    let mut si = state.sector_idx;
+    while si < n {
+        let threshold = sector_starts[si];
+        let crossed = last_p < threshold && frame.p >= threshold;
+        if !crossed {
+            break;
+        }
+        let t_cross = interpolate_time(last_p, last_t, frame.p, frame.t, threshold);
+        let dur = (t_cross - state.sector_started_at) as f32;
+        if dur > 0.0 {
+            state.current_lap_sectors.push(dur);
+            state.output.current_lap_sectors = state.current_lap_sectors.clone();
+        }
+        state.sector_started_at = t_cross;
+        state.sector_idx = si + 1;
+        si += 1;
+    }
+
+    state.last_p = frame.p;
+    state.last_t = frame.t;
+}
+
 impl SectorTracker {
     /// Update sector tracking for all cars. Called every 60-Hz frame.
     pub fn update(&mut self, client: &IRacingClient, yaml: &SessionInfoYaml) -> Result<()> {
@@ -151,119 +287,16 @@ impl SectorTracker {
             }
 
             let state = self.cars.entry(car_idx).or_insert_with(|| CarState::new(n + 1));
-
-            // Invalidate running lap if car goes to pit or leaves track.
-            if pit || surface == 1 || surface == 2 {
-                state.invalidate_lap(pit);
-                state.last_p = p;
-                state.last_t = session_time;
-                continue;
-            }
-
-            let last_p = state.last_p;
-            let last_t = state.last_t;
-
-            // First ever sample — just arm.
-            if last_p < 0.0 {
-                state.last_p = p;
-                state.last_t = session_time;
-                continue;
-            }
-
-            // Detect S/F crossing (p wraps from >0.9 back to <0.1).
-            let sf_cross = last_p > 0.9 && p < 0.1;
-
-            if sf_cross {
-                let t_sf = interpolate_time(last_p, last_t, p, session_time, 0.0);
-
-                // Finish the last sector of the previous lap.
-                if state.lap_valid && state.sector_idx == n {
-                    let dur = (t_sf - state.sector_started_at) as f32;
-                    if dur > 0.0 {
-                        state.current_lap_sectors.push(dur);
-                    }
-                }
-                // Commit the completed lap if we have exactly n+1 sector times.
-                if state.lap_valid && state.current_lap_sectors.len() == n + 1 {
-                    let times = state.current_lap_sectors.clone();
-                    let pb = &mut state.output.personal_best;
-                    if pb.len() < n + 1 {
-                        pb.resize(n + 1, None);
-                    }
-                    for (i, &t) in times.iter().enumerate() {
-                        pb[i] = Some(match pb[i] {
-                            Some(best) if best <= t => best,
-                            _ => t,
-                        });
-                    }
-                    state.output.last_sectors = times;
-                }
-
-                // Emit a LapCompletion for every car that had a lap started.
-                if state.current_lap_num > 0 {
-                    // Prefer iRacing's authoritative CarIdxLastLapTime over our
-                    // self-measured interpolation (which has ~60-Hz noise of ±4-7 ms).
-                    // Fall back to interpolated time only when iRacing reports no value
-                    // (e.g. off-track invalidation → SDK returns -1).
-                    let sdk_last = sdk_last_lap_times.get(idx).copied().unwrap_or(-1.0);
-                    let lap_time = if sdk_last > 0.0 {
-                        Some(sdk_last)
-                    } else if state.lap_started_at > 0.0 {
-                        let t = (t_sf - state.lap_started_at) as f32;
-                        if t > 0.0 { Some(t) } else { None }
-                    } else {
-                        None
-                    };
-                    let valid = state.lap_valid && state.current_lap_sectors.len() == n + 1;
-                    self.pending_completions.push(LapCompletion {
-                        car_idx,
-                        lap_num: state.current_lap_num,
-                        lap_time_sec: lap_time,
-                        sectors: state.current_lap_sectors.clone(),
-                        valid,
-                        in_lap: state.pit_in_during_lap,
-                        session_time: t_sf,
-                        air_temp,
-                        track_temp,
-                    });
-                }
-
-                // Start fresh lap.
-                state.reset_lap(t_sf, n + 1);
-                state.output.current_lap_sectors.clear();
-                state.last_p = p;
-                state.last_t = session_time;
-                continue;
-            }
-
-            // Not on an active, valid lap — skip sector crossing logic.
-            if !state.lap_valid {
-                state.last_p = p;
-                state.last_t = session_time;
-                continue;
-            }
-
-            // Check if we crossed any sector boundaries between last_p and p.
-            let mut si = state.sector_idx;
-            while si < n {
-                let threshold = self.sector_starts[si];
-                let crossed = last_p < threshold && p >= threshold;
-                if !crossed {
-                    break;
-                }
-                let t_cross = interpolate_time(last_p, last_t, p, session_time, threshold);
-                let dur = (t_cross - state.sector_started_at) as f32;
-                if dur > 0.0 {
-                    state.current_lap_sectors.push(dur);
-                    state.output.current_lap_sectors = state.current_lap_sectors.clone();
-                }
-                state.sector_started_at = t_cross;
-                state.sector_idx = si + 1;
-                si += 1;
-            }
-
-            state.last_p = p;
-            state.last_t = session_time;
+            let frame = Frame {
+                t: session_time,
+                p,
+                on_pit: pit,
+                surface,
+                sdk_last_lap: sdk_last_lap_times.get(idx).copied().unwrap_or(-1.0),
+                air_temp,
+                track_temp,
+            };
+            step_car(car_idx, state, &frame, &self.sector_starts, &mut self.pending_completions);
         }
 
         Ok(())
@@ -322,8 +355,8 @@ mod tests {
         }
     }
 
-    /// Feed a sequence of (time, lapDistPct, onPit, surface) frames into state for car 0.
-    /// Mirrors the S/F-crossing and sector logic from `update()`, including completion emission.
+    /// Feed a sequence of (time, lapDistPct, onPit, surface) frames into state
+    /// for car 0 — drives the production `step_car()` directly.
     fn feed(st: &mut SectorTracker, frames: &[(f64, f32, bool, i32)]) {
         let n = st.sector_starts.len();
         for &(t, p, pit, surface) in frames {
@@ -331,75 +364,16 @@ mod tests {
                 continue;
             }
             let state = st.cars.entry(0).or_insert_with(|| CarState::new(n + 1));
-            if pit || surface == 1 || surface == 2 {
-                state.invalidate_lap(pit);
-                state.last_p = p;
-                state.last_t = t;
-                continue;
-            }
-            let last_p = state.last_p;
-            let last_t = state.last_t;
-            if last_p < 0.0 {
-                state.last_p = p;
-                state.last_t = t;
-                continue;
-            }
-            let sf_cross = last_p > 0.9 && p < 0.1;
-            if sf_cross {
-                let t_sf = interpolate_time(last_p, last_t, p, t, 0.0);
-                if state.lap_valid && state.sector_idx == n {
-                    let dur = (t_sf - state.sector_started_at) as f32;
-                    if dur > 0.0 { state.current_lap_sectors.push(dur); }
-                }
-                if state.lap_valid && state.current_lap_sectors.len() == n + 1 {
-                    let times = state.current_lap_sectors.clone();
-                    let pb = &mut state.output.personal_best;
-                    if pb.len() < n + 1 { pb.resize(n + 1, None); }
-                    for (i, &sv) in times.iter().enumerate() {
-                        pb[i] = Some(match pb[i] { Some(b) if b <= sv => b, _ => sv });
-                    }
-                    state.output.last_sectors = times;
-                }
-                // Emit completion (mirrors update()).
-                if state.current_lap_num > 0 {
-                    let lap_time = if state.lap_started_at > 0.0 {
-                        let elapsed = (t_sf - state.lap_started_at) as f32;
-                        if elapsed > 0.0 { Some(elapsed) } else { None }
-                    } else {
-                        None
-                    };
-                    let valid = state.lap_valid && state.current_lap_sectors.len() == n + 1;
-                    st.pending_completions.push(LapCompletion {
-                        car_idx: 0,
-                        lap_num: state.current_lap_num,
-                        lap_time_sec: lap_time,
-                        sectors: state.current_lap_sectors.clone(),
-                        valid,
-                        in_lap: state.pit_in_during_lap,
-                        session_time: t_sf,
-                        air_temp: None,
-                        track_temp: None,
-                    });
-                }
-                state.reset_lap(t_sf, n + 1);
-                state.last_p = p;
-                state.last_t = t;
-                continue;
-            }
-            if !state.lap_valid { state.last_p = p; state.last_t = t; continue; }
-            let mut si = state.sector_idx;
-            while si < n {
-                let threshold = st.sector_starts[si];
-                if !(last_p < threshold && p >= threshold) { break; }
-                let t_cross = interpolate_time(last_p, last_t, p, t, threshold);
-                let dur = (t_cross - state.sector_started_at) as f32;
-                if dur > 0.0 { state.current_lap_sectors.push(dur); }
-                state.sector_started_at = t_cross;
-                state.sector_idx = si + 1;
-                si += 1;
-            }
-            state.last_p = p;
-            state.last_t = t;
+            let frame = Frame {
+                t,
+                p,
+                on_pit: pit,
+                surface,
+                sdk_last_lap: -1.0,
+                air_temp: None,
+                track_temp: None,
+            };
+            step_car(0, state, &frame, &st.sector_starts, &mut st.pending_completions);
         }
     }
 

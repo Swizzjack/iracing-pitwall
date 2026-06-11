@@ -27,7 +27,7 @@ impl Rule for ConsiderPitRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let fl = current.fuel_laps_left;
         if fl <= 0.0 || fl < 1.5 {
             return None; // FuelCritical handles the critical end
@@ -60,7 +60,7 @@ impl Rule for DrivethroughPenaltyRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         // Fire on rising edge of the actual iRacing drive-through penalty flag
         // (CarIdxSessionFlags bit 0x10000000). Incident-count changes are NOT penalties.
@@ -84,7 +84,7 @@ impl Rule for PitlaneExitBriefingRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         // Fire when exiting pit lane
         if !prev.in_pit || current.in_pit {
@@ -151,7 +151,7 @@ impl Rule for IncidentHighRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         if current.incident_count <= prev.incident_count {
             return None;
@@ -195,7 +195,7 @@ impl Rule for IncidentMediumRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         if current.incident_count <= prev.incident_count {
             return None;
@@ -229,7 +229,7 @@ impl Rule for IncidentLowRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         if current.incident_count <= prev.incident_count {
             return None;

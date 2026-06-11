@@ -46,7 +46,7 @@ impl Rule for TireTempsOutOfRangeRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let now_out = any_out_of_range(current);
         let was_out = prev.map(any_out_of_range).unwrap_or(false);
         if now_out && !was_out {
@@ -74,7 +74,7 @@ impl Rule for TireTempsInRangeRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         let now_ok = all_in_range(current);
         let was_out = any_out_of_range(prev);
@@ -98,7 +98,7 @@ impl Rule for TireWear50Rule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let wear = max_wear(current);
         let prev_wear = prev.map(max_wear).unwrap_or(0.0);
         if wear >= 0.50 && prev_wear < 0.50 {
@@ -121,7 +121,7 @@ impl Rule for TireWear75Rule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let wear = max_wear(current);
         let prev_wear = prev.map(max_wear).unwrap_or(0.0);
         if wear >= 0.75 && prev_wear < 0.75 {
@@ -144,7 +144,7 @@ impl Rule for TireWear90Rule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let wear = max_wear(current);
         let prev_wear = prev.map(max_wear).unwrap_or(0.0);
         if wear >= 0.90 && prev_wear < 0.90 {

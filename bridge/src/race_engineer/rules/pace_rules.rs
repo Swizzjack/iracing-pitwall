@@ -39,7 +39,7 @@ impl Rule for PersonalBestRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
         if !current.personal_best_this_lap {
             return None;
         }
@@ -63,7 +63,7 @@ impl Rule for PaceDroppingRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         if !lap_just_completed(current, prev) {
             return None;
         }
@@ -111,7 +111,7 @@ impl Rule for SectorDeltaRule {
     fn session_mask(&self) -> SessionMask { SessionMask::QUALIFYING }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         prev?;
         // Find the first sector with a significant delta (>0.3 s)
         for (i, &delta) in current.last_sector_deltas.iter().enumerate() {
@@ -139,7 +139,7 @@ impl Rule for SessionBestOvertakenRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE | SessionMask::QUALIFYING }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         if !lap_just_completed(current, prev) {
             return None;
         }
@@ -169,7 +169,7 @@ impl Rule for ClassBestLapRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE | SessionMask::QUALIFYING }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         if !lap_just_completed(current, prev) {
             return None;
         }
@@ -226,7 +226,7 @@ impl Rule for ClassAheadSlowerRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         if !lap_just_completed(current, prev) { return None; }
         class_pace_event(
             self.id(),
@@ -245,7 +245,7 @@ impl Rule for ClassAheadFasterRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         if !lap_just_completed(current, prev) { return None; }
         class_pace_event(
             self.id(),
@@ -264,7 +264,7 @@ impl Rule for ClassBehindFasterRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         if !lap_just_completed(current, prev) { return None; }
         class_pace_event(
             self.id(),
@@ -283,7 +283,7 @@ impl Rule for ClassBehindSlowerRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         if !lap_just_completed(current, prev) { return None; }
         class_pace_event(
             self.id(),
@@ -302,7 +302,7 @@ impl Rule for ClassPaceBriefRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         if !lap_just_completed(current, prev) {
             return None;
         }
@@ -337,7 +337,7 @@ impl Rule for SessionBestPaceRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         if !lap_just_completed(current, prev) {
             return None;
         }

@@ -371,8 +371,9 @@ impl StateAggregator {
             .filter(|&t| t < f32::MAX && t > 0.0)
             .map(Duration::from_secs_f32);
 
-        // Sector deltas from last 3 sectors vs personal best
-        let sector_deltas = [None, None, None]; // populated from sector_tracker externally if needed
+        // Sector deltas: sectors completed so far this lap vs personal best
+        // (positive = slower). Sourced from the standings' sector tracker data.
+        let sector_deltas = compute_sector_deltas(player_car_idx, standings);
 
         // --- Flags ---
         let active_flags = FlagState::from_iracing(
@@ -501,6 +502,32 @@ impl StateAggregator {
 
 fn avg3(arr: [f32; 3]) -> f32 {
     (arr[0] + arr[1] + arr[2]) / 3.0
+}
+
+/// Delta per completed sector of the current lap vs the driver's personal
+/// best for that sector (positive = slower). Covers the first three sectors;
+/// `None` where the sector hasn't been completed or no PB exists yet.
+fn compute_sector_deltas(
+    player_car_idx: i32,
+    standings: Option<&StandingsSnapshot>,
+) -> [Option<f32>; 3] {
+    let mut out = [None, None, None];
+    let Some(entry) = standings
+        .and_then(|s| s.entries.iter().find(|e| e.car_idx == player_car_idx))
+    else {
+        return out;
+    };
+    for (i, slot) in out.iter_mut().enumerate() {
+        if let (Some(&cur), Some(Some(pb))) = (
+            entry.current_lap_sectors.get(i),
+            entry.best_sector_times.get(i),
+        ) {
+            if cur > 0.0 && *pb > 0.0 {
+                *slot = Some(cur - *pb);
+            }
+        }
+    }
+    out
 }
 
 fn compute_gaps(
