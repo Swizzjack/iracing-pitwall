@@ -106,7 +106,7 @@ impl Rule for PitlaneExitBriefingRule {
 
         let tyre_status = if avg_temp > 0.1 && avg_temp < 60.0 {
             "cold"
-        } else if avg_temp >= 60.0 && avg_temp < 80.0 {
+        } else if (60.0..80.0).contains(&avg_temp) {
             "warming"
         } else {
             "ready"

@@ -144,7 +144,7 @@ impl RuleDispatcher {
 
         let mut events = events.unwrap_or_default();
         // Critical first, then High, then Info; stable within tier (FIFO)
-        events.sort_by(|a, b| b.priority.cmp(&a.priority));
+        events.sort_by_key(|e| std::cmp::Reverse(e.priority));
         events
     }
 

@@ -121,8 +121,8 @@ impl FlagState {
         let any_yellow = (session_flags & (YELLOW | YELLOW_WAVING | CAUTION | CAUTION_WAVING)) != 0;
         let any_red = (session_flags & RED) != 0;
         let any_debris = (session_flags & DEBRIS) != 0
-            || player_car_flags.map_or(false, |f| (f & CAR_DEBRIS) != 0);
-        let blue = player_car_flags.map_or(false, |f| (f & CAR_BLUE) != 0);
+            || player_car_flags.is_some_and(|f| (f & CAR_DEBRIS) != 0);
+        let blue = player_car_flags.is_some_and(|f| (f & CAR_BLUE) != 0);
         let meatball = (session_flags & REPAIR) != 0;
 
         FlagState {
@@ -299,7 +299,7 @@ impl StateAggregator {
         let time_remaining = tel
             .session_time_remain
             .filter(|&t| t > 0.0 && t < 604800.0) // < 1 week
-            .map(|t| Duration::from_secs_f64(t));
+            .map(Duration::from_secs_f64);
 
         // --- Player ---
         let player_position = tel.player_position.max(0) as u32;
@@ -369,7 +369,7 @@ impl StateAggregator {
                 })
             })
             .filter(|&t| t < f32::MAX && t > 0.0)
-            .map(|t| Duration::from_secs_f32(t));
+            .map(Duration::from_secs_f32);
 
         // Sector deltas from last 3 sectors vs personal best
         let sector_deltas = [None, None, None]; // populated from sector_tracker externally if needed

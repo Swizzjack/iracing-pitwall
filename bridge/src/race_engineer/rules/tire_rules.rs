@@ -77,7 +77,7 @@ impl Rule for TireTempsInRangeRule {
     fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         let now_ok = all_in_range(current);
-        let was_out = any_out_of_range(&prev);
+        let was_out = any_out_of_range(prev);
         if now_ok && was_out {
             Some(RuleEvent {
                 rule_id: self.id(),

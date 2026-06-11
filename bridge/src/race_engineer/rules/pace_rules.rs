@@ -112,9 +112,7 @@ impl Rule for SectorDeltaRule {
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
     fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        if prev.is_none() {
-            return None;
-        }
+        prev?;
         // Find the first sector with a significant delta (>0.3 s)
         for (i, &delta) in current.last_sector_deltas.iter().enumerate() {
             if let Some(d) = delta {

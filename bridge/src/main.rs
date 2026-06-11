@@ -3,7 +3,10 @@
 //! Tokio runtime, HTTP+WebSocket server, iRacing SDK reader.
 
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
-#![allow(dead_code)]
+// On non-Windows hosts the whole SDK consumer chain hangs off the
+// cfg(windows) sdk_loop, so dead-code analysis would flag it all.
+// Windows builds (the shipped artifact) still get real dead-code checks.
+#![cfg_attr(not(windows), allow(dead_code))]
 
 mod config;
 mod error;

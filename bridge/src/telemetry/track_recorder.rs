@@ -184,6 +184,17 @@ fn interpolate(samples: &[(f32, f64, f64, f64)], target_p: f32) -> (f64, f64, f6
 
 // ─── Public Recorder ─────────────────────────────────────────────────────────
 
+/// Stable identifier for a track+config combination, shared by the recorder's
+/// disk cache and the TrackMapSnapshot sent to the dashboard.
+pub fn track_key(wi: &crate::iracing_sdk::types::WeekendInfo) -> String {
+    let config = wi.track_config_name.trim();
+    if config.is_empty() {
+        wi.track_name.clone()
+    } else {
+        format!("{}_{}", wi.track_name, config.replace(' ', "_"))
+    }
+}
+
 pub struct TrackRecorder {
     cache_dir: PathBuf,
     current_key: Option<String>,
@@ -210,12 +221,7 @@ impl TrackRecorder {
     /// Called every 60-Hz frame. Manages track-change detection, recording, and finalization.
     pub fn update(&mut self, client: &IRacingClient, yaml: &SessionInfoYaml) -> Result<()> {
         let wi = &yaml.weekend_info;
-        let config = wi.track_config_name.trim();
-        let track_key = if config.is_empty() {
-            wi.track_name.clone()
-        } else {
-            format!("{}_{}", wi.track_name, config.replace(' ', "_"))
-        };
+        let track_key = track_key(wi);
 
         // Track changed → reset and try to load from disk.
         if self.current_key.as_deref() != Some(&track_key) {

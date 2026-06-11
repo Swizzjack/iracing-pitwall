@@ -9,11 +9,7 @@ use crate::telemetry::pit_tracker::PitTracker;
 use crate::telemetry::sector_tracker::SectorTracker;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use ts_rs::TS;
-
-static LAST_INC_SRC: Mutex<Option<String>> = Mutex::new(None);
-static LAST_INC_RAW: Mutex<Option<String>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "../shared/")]
@@ -109,8 +105,6 @@ impl StandingsSnapshot {
         let f2_times = client.get_f32_array("CarIdxF2Time").ok();
         // Tire compound index per car; absent in some builds/sessions.
         let tire_compounds = client.get_i32_array("CarIdxTireCompound").ok();
-        // Kept for diagnostic logging only — not used for display.
-        let team_inc = client.get_i32_array("CarIdxTeamIncidentCount").ok();
         // P2P: CarIdxP2P_Count is declared as Int but actually carries raw Float32
         // bits (× 10 = seconds remaining) — see project_p2p_encoding memory.
         // EXCEPT for the player's own slot, which iRacing populates with a plain
@@ -287,41 +281,6 @@ impl StandingsSnapshot {
                 Some(live_entry)
             })
             .collect();
-
-        {
-            let src_sig = format!(
-                "CarIdxTeamIncidentCount={} results_map_len={} results_positions_present={}",
-                team_inc.as_ref().map(|a| format!("Some(len={})", a.len())).unwrap_or_else(|| "None".into()),
-                results_map.len(),
-                current_session.and_then(|s| s.results_positions.as_ref()).is_some(),
-            );
-            let mut last = LAST_INC_SRC.lock().unwrap();
-            if last.as_deref() != Some(&src_sig) {
-                log::info!("standings inc sources: {}", src_sig);
-                *last = Some(src_sig);
-            }
-
-            let ego_idx = yaml.driver_info.driver_car_idx;
-            let raw_sig: String = entries
-                .iter()
-                .map(|e| {
-                    let idx = e.car_idx as usize;
-                    let live_inc = team_inc.as_ref().and_then(|a| a.get(idx).copied()).unwrap_or(0);
-                    let res_inc = results_map.get(&e.car_idx).map(|r| r.incidents).unwrap_or(0);
-                    let driver_entry = yaml.driver_info.drivers.iter().find(|d| d.car_idx == e.car_idx);
-                    let cur = driver_entry.map(|d| d.cur_driver_incident_count).unwrap_or(0);
-                    let team_cnt = driver_entry.map(|d| d.team_incident_count).unwrap_or(0);
-                    let ego_marker = if e.car_idx == ego_idx { "*" } else { "" };
-                    format!("{}{}(live={} res={} cur={} team={})", ego_marker, e.car_idx, live_inc, res_inc, cur, team_cnt)
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-            let mut last_raw = LAST_INC_RAW.lock().unwrap();
-            if last_raw.as_deref() != Some(&raw_sig) {
-                log::info!("standings inc raw: {}", raw_sig);
-                *last_raw = Some(raw_sig);
-            }
-        }
 
         entries.sort_unstable_by(|a, b| {
             let a_unclass = a.position == 0;

@@ -3,8 +3,6 @@
 #[derive(Debug, Clone)]
 pub struct Config {
     pub ws_port: u16,
-    pub telemetry_hz: u32,
-    pub standings_hz: u32,
     /// Disables auto-shutdown (BRIDGE_KEEP_ALIVE=1).
     pub keep_alive: bool,
     /// Seconds without a client after the first connect before shutdown (BRIDGE_SHUTDOWN_GRACE_SEC).
@@ -20,8 +18,6 @@ impl Config {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(8765),
-            telemetry_hz: 60,
-            standings_hz: 4,
             keep_alive: std::env::var("BRIDGE_KEEP_ALIVE")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
