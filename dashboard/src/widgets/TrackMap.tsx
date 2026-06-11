@@ -33,7 +33,7 @@ function loadNum(key: string, def: number, min: number, max: number): number {
   try {
     const v = parseFloat(localStorage.getItem(key) ?? '')
     if (Number.isFinite(v) && v >= min && v <= max) return v
-  } catch {}
+  } catch { /* localStorage unavailable — fall back to default */ }
   return def
 }
 
@@ -74,7 +74,7 @@ const SECTOR_GRAY_DARK  = '#444444'
 const SECTOR_GRAY_LIGHT = '#888888'
 const SECTOR_LABEL_GRAY = '#cccccc'
 
-function staticSectorColor(idx: number, _n: number): string {
+function staticSectorColor(idx: number): string {
   return idx % 2 === 0 ? SECTOR_GRAY_DARK : SECTOR_GRAY_LIGHT
 }
 
@@ -96,9 +96,9 @@ function livePerfColor(idx: number, live: LiveSectorPalette): string | null {
   return null
 }
 
-function sectorColorAt(idx: number, live: LiveSectorPalette | null, n: number): string {
+function sectorColorAt(idx: number, live: LiveSectorPalette | null): string {
   if (live) { const c = livePerfColor(idx, live); if (c) return c }
-  return staticSectorColor(idx, n)
+  return staticSectorColor(idx)
 }
 
 function sectorLabelColor(idx: number, live: LiveSectorPalette | null): string {
@@ -418,17 +418,24 @@ export function TrackMap({ snap, playerCarIdx, info, standings, onDelete }: Prop
   const [showSettings, setShowSettings] = useState(false)
 
   const settingsRef = useRef<DrawSettings>({ trackWidth, carRadius, sfLength, sectorShow, sectorLength, sectorLiveColors, sectorFontSize, mode3d, tiltDeg, zExag })
-  settingsRef.current = { trackWidth, carRadius, sfLength, sectorShow, sectorLength, sectorLiveColors, sectorFontSize, mode3d, tiltDeg, zExag }
+  // Mirror the current settings into the ref the rAF loop reads.
+  // Runs after every render (no dep array) — refs must not be written
+  // during render itself.
+  useEffect(() => {
+    settingsRef.current = { trackWidth, carRadius, sfLength, sectorShow, sectorLength, sectorLiveColors, sectorFontSize, mode3d, tiltDeg, zExag }
+  })
 
   // Keep latest props accessible in the rAF loop without re-scheduling.
   // Detect new snapshots (reference change) and update interpolation state.
-  if (snap !== interpRef.current.currSnap) {
-    interpRef.current.prevSnap = interpRef.current.currSnap
-    interpRef.current.prevTs   = interpRef.current.currTs
-    interpRef.current.currSnap = snap
-    interpRef.current.currTs   = performance.now()
-  }
-  dataRef.current = { snap, playerCarIdx, standings }
+  useEffect(() => {
+    if (snap !== interpRef.current.currSnap) {
+      interpRef.current.prevSnap = interpRef.current.currSnap
+      interpRef.current.prevTs   = interpRef.current.currTs
+      interpRef.current.currSnap = snap
+      interpRef.current.currTs   = performance.now()
+    }
+    dataRef.current = { snap, playerCarIdx, standings }
+  }, [snap, playerCarIdx, standings])
 
   useEffect(() => {
     function draw() {
@@ -508,7 +515,7 @@ export function TrackMap({ snap, playerCarIdx, info, standings, onDelete }: Prop
   }, [])
 
   function persist(key: string, v: number | boolean) {
-    try { localStorage.setItem(key, String(v)) } catch {}
+    try { localStorage.setItem(key, String(v)) } catch { /* localStorage unavailable */ }
   }
 
   function handleResetAll() {
@@ -654,12 +661,11 @@ function drawTrackShape(ctx: CanvasRenderingContext2D, cache: ShapeCache, s: Dra
     ctx.lineWidth = s.trackWidth
     const pd = cache.pts2d
     const si = cache.sectorIdxPerPoint
-    const ns = cache.nSectors
     const np = pd.length
     const activeLive = s.sectorLiveColors ? live : null
     for (let i = 0; i < np; i++) {
       const j = (i + 1) % np
-      ctx.strokeStyle = sectorColorAt(si[i], activeLive, ns)
+      ctx.strokeStyle = sectorColorAt(si[i], activeLive)
       ctx.beginPath()
       ctx.moveTo(pd[i][0], pd[i][1])
       ctx.lineTo(pd[j][0], pd[j][1])
@@ -703,7 +709,7 @@ function drawTrackShape(ctx: CanvasRenderingContext2D, cache: ShapeCache, s: Dra
     ctx.lineCap = 'butt'
     ctx.lineWidth = 2
     for (const m of cache.sectorMarkers) {
-      ctx.strokeStyle = sectorColorAt(m.num - 1, activeLive, cache.nSectors)
+      ctx.strokeStyle = sectorColorAt(m.num - 1, activeLive)
       ctx.beginPath()
       ctx.moveTo(m.x - m.nx * sh, m.y - m.ny * sh)
       ctx.lineTo(m.x + m.nx * sh, m.y + m.ny * sh)

@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
 
@@ -20,6 +20,8 @@ export interface LapHistoryResult {
   reset: () => void
 }
 
+// Mutable per-frame bookkeeping; only touched inside the effect below.
+// The render-visible lap list lives in useState.
 interface TrackerState {
   lastLapSeen: number
   lastSessionNum: number
@@ -28,7 +30,6 @@ interface TrackerState {
   onPitAtLapStart: boolean      // was on pit road when the current lap began
   wasOnPitDuringLap: boolean    // was on pit road at any point during the current lap
   incidentsAtLapStart: number | null
-  history: LapRecord[]
 }
 
 export function useLapHistory(
@@ -43,20 +44,13 @@ export function useLapHistory(
     onPitAtLapStart: false,
     wasOnPitDuringLap: false,
     incidentsAtLapStart: null,
-    history: [],
   })
+  const snapRef = useRef<TelemetrySnapshot | null>(null)
+  const [history, setHistory] = useState<LapRecord[]>([])
 
-  const reset = useCallback(() => {
-    const s = state.current
-    s.history = []
-    s.lastLapSeen = snap ? snap.lap : -1
-    s.lastRecordedTime = snap ? snap.lapLastTime : 0
-    s.onPitAtLapStart = snap ? snap.onPitRoad : false
-    s.wasOnPitDuringLap = snap ? snap.onPitRoad : false
-    s.incidentsAtLapStart = snap ? (snap.playerCarMyIncidentCount ?? 0) : null
-  }, [snap])
-
-  if (snap) {
+  useEffect(() => {
+    snapRef.current = snap
+    if (!snap) return
     const s = state.current
 
     // Session change or new server (SubSessionID changes) → full reset
@@ -71,8 +65,10 @@ export function useLapHistory(
       s.onPitAtLapStart = snap.onPitRoad
       s.wasOnPitDuringLap = snap.onPitRoad
       s.incidentsAtLapStart = snap.playerCarMyIncidentCount ?? 0
-      s.history = []
-    } else if (s.lastSubSessionId === null && subId !== null) {
+      setHistory([])
+      return
+    }
+    if (s.lastSubSessionId === null && subId !== null) {
       s.lastSubSessionId = subId
     }
 
@@ -101,22 +97,20 @@ export function useLapHistory(
         const lapIncidents = incStart != null ? Math.max(0, incNow - incStart) : 0
 
         const isOutLap = s.onPitAtLapStart || s.wasOnPitDuringLap
-        const isInLap = false
         const valid = !s.onPitAtLapStart && !s.wasOnPitDuringLap
 
-        const record: LapRecord = {
-          lapNumber: s.history.length + 1,
+        const record: Omit<LapRecord, 'lapNumber'> = {
           lapTimeSec,
           airTemp: snap.airTemp,
           trackTemp: snap.trackTemp,
           trackRubberState: rubber,
           trackWetness: snap.trackWetness ?? null,
-          isInLap,
+          isInLap: false,
           isOutLap,
           valid,
           incidents: lapIncidents,
         }
-        s.history = [...s.history, record]
+        setHistory((prev) => [...prev, { ...record, lapNumber: prev.length + 1 }])
 
         s.lastRecordedTime = lapTimeSec
         s.incidentsAtLapStart = incNow
@@ -133,7 +127,18 @@ export function useLapHistory(
       s.wasOnPitDuringLap = snap.onPitRoad
       s.incidentsAtLapStart = snap.playerCarMyIncidentCount ?? 0
     }
-  }
+  }, [snap, info])
 
-  return { history: state.current.history, reset }
+  const reset = useCallback(() => {
+    const s = state.current
+    const sn = snapRef.current
+    s.lastLapSeen = sn ? sn.lap : -1
+    s.lastRecordedTime = sn ? sn.lapLastTime : 0
+    s.onPitAtLapStart = sn ? sn.onPitRoad : false
+    s.wasOnPitDuringLap = sn ? sn.onPitRoad : false
+    s.incidentsAtLapStart = sn ? (sn.playerCarMyIncidentCount ?? 0) : null
+    setHistory([])
+  }, [])
+
+  return { history, reset }
 }

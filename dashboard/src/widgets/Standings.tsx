@@ -207,7 +207,7 @@ export function Standings({ snap, playerCarIdx }: Props) {
   useEffect(() => {
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(config))
-    } catch {}
+    } catch { /* localStorage unavailable */ }
   }, [config])
 
   const sessionBestLap = useMemo(() => {
@@ -434,8 +434,9 @@ export function Standings({ snap, playerCarIdx }: Props) {
             return { ...prev, hidden }
           })}
           onResetWidth={id => setConfig(prev => {
-            const { [id]: _, ...rest } = prev.widths
-            return { ...prev, widths: rest as Partial<Record<ColId, number>> }
+            const widths = { ...prev.widths }
+            delete widths[id]
+            return { ...prev, widths }
           })}
           onResetAllWidths={() => setConfig(prev => ({ ...prev, widths: {} }))}
           onFontScaleChange={fontScale => setConfig(prev => ({ ...prev, fontScale }))}
