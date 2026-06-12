@@ -73,9 +73,16 @@ pub async fn serve(
         .with_state(state);
 
     let server = async move { axum::serve(listener, app).await };
+    let shutdown = async move {
+        // Err means the lifecycle watcher was dropped without requesting
+        // shutdown (e.g. BRIDGE_KEEP_ALIVE=1 returns early) — keep serving.
+        if shutdown_rx.await.is_err() {
+            std::future::pending::<()>().await
+        }
+    };
     tokio::select! {
         r = server => r?,
-        _ = shutdown_rx => {
+        _ = shutdown => {
             log::info!("ws server: shutdown signal received, dropping listener");
         }
     }
