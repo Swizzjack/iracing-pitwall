@@ -22,7 +22,7 @@ pub struct StandingsSnapshot {
     pub session_best_sectors: Vec<Option<f32>>,
 }
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, TS)]
 #[ts(export, export_to = "../shared/")]
 #[serde(rename_all = "camelCase")]
 pub struct StandingEntry {
@@ -67,6 +67,12 @@ pub struct StandingEntry {
     pub current_lap_sectors: Vec<f32>,
     /// True once the car has crossed the S/F line under the checkered flag.
     pub finished: bool,
+    /// Estimated time (s) from the S/F line to the car's current track position
+    /// (`CarIdxEstTime`). Backend-only input for live race-gap computation —
+    /// `CarIdxF2Time` refreshes only at the start/finish line during races.
+    #[serde(skip)]
+    #[ts(skip)]
+    pub est_time: Option<f32>,
 }
 
 impl StandingsSnapshot {
@@ -103,6 +109,9 @@ impl StandingsSnapshot {
         // F2Time = seconds behind in-class leader during a race; absent in older
         // builds and meaningless outside race sessions, so it's optional.
         let f2_times = client.get_f32_array("CarIdxF2Time").ok();
+        // EstTime = per-car estimated time from S/F to its current position,
+        // updated continuously (unlike F2Time) — used for live gaps.
+        let est_times = client.get_f32_array("CarIdxEstTime").ok();
         // Tire compound index per car; absent in some builds/sessions.
         let tire_compounds = client.get_i32_array("CarIdxTireCompound").ok();
         // P2P: CarIdxP2P_Count is declared as Int but actually carries raw Float32
@@ -266,6 +275,13 @@ impl StandingsSnapshot {
                     best_sector_times: sectors.map(|s| s.personal_best.clone()).unwrap_or_default(),
                     current_lap_sectors: sectors.map(|s| s.current_lap_sectors.clone()).unwrap_or_default(),
                     finished: false,
+                    // LapDistPct is -1 while the car is not in the world (garage,
+                    // not loaded) — EstTime carries no usable signal then.
+                    est_time: est_times
+                        .as_ref()
+                        .and_then(|arr| arr.get(idx).copied())
+                        .filter(|&t| t >= 0.0)
+                        .filter(|_| *lap_dist_pcts.get(idx).unwrap_or(&-1.0) >= 0.0),
                 };
 
                 // Freeze on first tick where checkered is set AND this car's lap counter

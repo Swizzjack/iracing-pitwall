@@ -8,7 +8,7 @@ use crate::iracing_sdk::IRacingClient;
 use serde::Serialize;
 use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, TS)]
 #[ts(export, export_to = "../shared/")]
 #[serde(rename_all = "camelCase")]
 pub struct TelemetrySnapshot {
@@ -259,7 +259,13 @@ impl TelemetrySnapshot {
 
             // Race format / remaining
             session_time_remain: client.get_f64("SessionTimeRemain").ok(),
-            session_laps_remain: client.get_i32("SessionLapsRemain").ok(),
+            // SessionLapsRemain is the deprecated counter and reports the lap
+            // count shifted by one ("use SessionLapsRemainEx" per the SDK docs);
+            // keep it only as a fallback for very old builds.
+            session_laps_remain: client
+                .get_i32("SessionLapsRemainEx")
+                .or_else(|_| client.get_i32("SessionLapsRemain"))
+                .ok(),
             session_time_total: client.get_f64("SessionTimeTotal").ok(),
             session_laps_total: client.get_i32("SessionLapsTotal").ok(),
 

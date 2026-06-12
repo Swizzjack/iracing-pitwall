@@ -218,12 +218,12 @@ pub fn build_default_rules() -> Vec<Box<dyn Rule>> {
         Box::new(RaceFinishedRule),
 
         // Position / gaps
-        Box::new(PositionGainedRule),
-        Box::new(PositionLostRule),
-        Box::new(GapAheadMediumRule),
-        Box::new(GapAheadHighRule),
-        Box::new(GapBehindMediumRule),
-        Box::new(GapBehindHighRule),
+        Box::new(PositionGainedRule::default()),
+        Box::new(PositionLostRule::default()),
+        Box::new(GapAheadMediumRule::default()),
+        Box::new(GapAheadHighRule::default()),
+        Box::new(GapBehindMediumRule::default()),
+        Box::new(GapBehindHighRule::default()),
 
         // Pace
         Box::new(PersonalBestRule),

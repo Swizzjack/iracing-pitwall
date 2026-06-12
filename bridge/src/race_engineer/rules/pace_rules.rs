@@ -27,11 +27,6 @@ fn fmt_lap(d: Duration) -> String {
     format!("{minutes}:{seconds:05.2}")
 }
 
-/// Returns true if a new lap has just been completed (lap counter incremented).
-fn lap_just_completed(current: &EngineerState, prev: Option<&EngineerState>) -> bool {
-    prev.map(|p| current.player_lap > p.player_lap).unwrap_or(false)
-}
-
 impl Rule for PersonalBestRule {
     fn id(&self) -> &'static str { "personal_best" }
     fn priority(&self) -> Priority { Priority::Info }
@@ -63,8 +58,8 @@ impl Rule for PaceDroppingRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        if !lap_just_completed(current, prev) {
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        if !current.lap_just_completed {
             return None;
         }
         let laps = &current.recent_lap_times;
@@ -140,7 +135,7 @@ impl Rule for SessionBestOvertakenRule {
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
     fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        if !lap_just_completed(current, prev) {
+        if !current.lap_just_completed {
             return None;
         }
         let prev = prev?;
@@ -169,8 +164,8 @@ impl Rule for ClassBestLapRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE | SessionMask::QUALIFYING }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        if !lap_just_completed(current, prev) {
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        if !current.lap_just_completed {
             return None;
         }
         let pb = current.best_lap_time_personal?;
@@ -226,8 +221,8 @@ impl Rule for ClassAheadSlowerRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        if !lap_just_completed(current, prev) { return None; }
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        if !current.lap_just_completed { return None; }
         class_pace_event(
             self.id(),
             "class_ahead_slower",
@@ -245,8 +240,8 @@ impl Rule for ClassAheadFasterRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        if !lap_just_completed(current, prev) { return None; }
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        if !current.lap_just_completed { return None; }
         class_pace_event(
             self.id(),
             "class_ahead_faster",
@@ -264,8 +259,8 @@ impl Rule for ClassBehindFasterRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        if !lap_just_completed(current, prev) { return None; }
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        if !current.lap_just_completed { return None; }
         class_pace_event(
             self.id(),
             "class_behind_faster",
@@ -283,8 +278,8 @@ impl Rule for ClassBehindSlowerRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        if !lap_just_completed(current, prev) { return None; }
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        if !current.lap_just_completed { return None; }
         class_pace_event(
             self.id(),
             "class_behind_slower",
@@ -302,8 +297,8 @@ impl Rule for ClassPaceBriefRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        if !lap_just_completed(current, prev) {
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        if !current.lap_just_completed {
             return None;
         }
         let rival_best = current.class_rivals_min_best_lap?;
@@ -337,8 +332,8 @@ impl Rule for SessionBestPaceRule {
     fn session_mask(&self) -> SessionMask { SessionMask::PRACTICE | SessionMask::QUALIFYING | SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        if !lap_just_completed(current, prev) {
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        if !current.lap_just_completed {
             return None;
         }
         let session_best = current.best_lap_time_session?;
