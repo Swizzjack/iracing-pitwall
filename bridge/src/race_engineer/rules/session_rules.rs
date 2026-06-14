@@ -16,7 +16,7 @@ impl Rule for FiveMinutesRemainingRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE | SessionMask::QUALIFYING }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let remaining = current.time_remaining?.as_secs_f64();
         let prev_remaining = prev.and_then(|p| p.time_remaining).map(|d| d.as_secs_f64());
 
@@ -43,7 +43,7 @@ impl Rule for LastLapRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE | SessionMask::QUALIFYING }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         match current.session_type {
             SessionType::Race => {
                 let laps = current.laps_remaining?;
@@ -90,7 +90,7 @@ impl Rule for RaceFinishedRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         let now_done = matches!(
             current.session_phase,

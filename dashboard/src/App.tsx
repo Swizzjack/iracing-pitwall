@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { LayoutItem } from 'react-grid-layout'
 import type { ServerMessage } from '@shared/ServerMessage'
 import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
@@ -183,9 +183,6 @@ function App() {
         case 'sdkDebug':
           setSdkDebug(msg.snapshot)
           break
-        case 'sdkStatus':
-        case 'disconnected':
-          break
       }
     })
     client.connect()
@@ -228,32 +225,40 @@ function App() {
     setStored(defaults)
   }
 
-  function handleDeleteTrackMap(trackKey: string) {
+  const handleDeleteTrackMap = useCallback((trackKey: string) => {
     clientRef.current?.send({ type: 'deleteTrackMap', trackKey } as never)
-  }
+  }, [])
+
+  // Stable object identity so memoized widgets only re-render when the
+  // snapshot they consume actually changed (standings at 4 Hz, not 60 Hz).
+  const widgetData = useMemo(
+    () => ({ tel, standings, info, trackMap, onDeleteTrackMap: handleDeleteTrackMap }),
+    [tel, standings, info, trackMap, handleDeleteTrackMap],
+  )
 
   function handleEngineerSettingsChange(partial: Partial<EngineerSettings>) {
-    setEngineerSettings((prev) => {
-      const next = { ...prev, ...partial }
-      engineerSettingsRef.current = next
-      saveEngineerSettings(next)
-      // Sync changed settings to the service / backend
-      if ('enabled' in partial) engineerService.setEnabled(next.enabled)
-      if ('volume' in partial) engineerService.setVolume(next.volume)
-      if ('radioEffect' in partial) engineerService.setRadioEffect(next.radioEffect)
-      if ('outputDeviceId' in partial) void engineerService.setOutputDevice(next.outputDeviceId)
-      // Send behaviour update for backend-relevant settings
-      engineerService.sendBehaviorUpdate({
-        enabled: next.enabled,
-        frequency: next.frequency,
-        muteInQualifying: next.muteInQualifying,
-        debugAllRulesInPractice: next.debugAllRulesInPractice,
-        activeVoiceId: next.activeVoiceId,
-        pilotName: next.pilotName || null,
-        muteNameInCallouts: next.muteNameInCallouts,
-      })
-      return next
+    // Compute outside the setState updater: updaters must stay pure
+    // (StrictMode runs them twice, which would double every side effect).
+    // engineerSettingsRef is the always-current source of truth.
+    const next = { ...engineerSettingsRef.current, ...partial }
+    engineerSettingsRef.current = next
+    saveEngineerSettings(next)
+    // Sync changed settings to the service / backend
+    if ('enabled' in partial) engineerService.setEnabled(next.enabled)
+    if ('volume' in partial) engineerService.setVolume(next.volume)
+    if ('radioEffect' in partial) engineerService.setRadioEffect(next.radioEffect)
+    if ('outputDeviceId' in partial) void engineerService.setOutputDevice(next.outputDeviceId)
+    // Send behaviour update for backend-relevant settings
+    engineerService.sendBehaviorUpdate({
+      enabled: next.enabled,
+      frequency: next.frequency,
+      muteInQualifying: next.muteInQualifying,
+      debugAllRulesInPractice: next.debugAllRulesInPractice,
+      activeVoiceId: next.activeVoiceId,
+      pilotName: next.pilotName || null,
+      muteNameInCallouts: next.muteNameInCallouts,
     })
+    setEngineerSettings(next)
   }
 
   return (
@@ -408,7 +413,7 @@ function App() {
       </SettingsDrawer>
       <main>
         <Dashboard
-          data={{ tel, standings, info, trackMap, onDeleteTrackMap: handleDeleteTrackMap }}
+          data={widgetData}
           visible={stored.visible}
           layout={stored.layout}
           editing={editing}

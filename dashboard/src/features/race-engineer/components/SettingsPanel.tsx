@@ -12,7 +12,16 @@ interface Props {
 }
 
 export function SettingsPanel({ settings, voices, onSettingsChange, onResetSetup }: Props) {
-  const [voiceList, setVoiceList] = useState<VoiceInfo[]>(voices)
+  // Optimistic install-state overrides: VoiceCard reports install/uninstall
+  // completion slightly before the next EngineerStatus refresh arrives. The
+  // server list (`voices`) stays the source of truth; deriving instead of
+  // mirroring it into state avoids the prop→state sync effect.
+  const [installedOverrides, setInstalledOverrides] = useState<Record<string, boolean>>({})
+  const voiceList = voices.map((v) =>
+    installedOverrides[v.id] != null && installedOverrides[v.id] !== v.installed
+      ? { ...v, installed: installedOverrides[v.id] }
+      : v,
+  )
 
   // Audio output device enumeration ------------------------------------------------
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([])
@@ -52,19 +61,15 @@ export function SettingsPanel({ settings, voices, onSettingsChange, onResetSetup
   }, [deviceSupported])
   // ---------------------------------------------------------------------------------
 
-  useEffect(() => {
-    setVoiceList(voices)
-  }, [voices])
-
   function handleUninstalled(voiceId: string) {
-    setVoiceList((prev) => prev.map((v) => (v.id === voiceId ? { ...v, installed: false } : v)))
+    setInstalledOverrides((prev) => ({ ...prev, [voiceId]: false }))
     if (settings.activeVoiceId === voiceId) {
       onSettingsChange({ activeVoiceId: null, enabled: false })
     }
   }
 
   function handleInstalled(voiceId: string) {
-    setVoiceList((prev) => prev.map((v) => (v.id === voiceId ? { ...v, installed: true } : v)))
+    setInstalledOverrides((prev) => ({ ...prev, [voiceId]: true }))
     onSettingsChange({ activeVoiceId: voiceId })
   }
 

@@ -1,9 +1,9 @@
 import { useMemo } from 'react'
 import type { StandingsSnapshot } from '@shared/StandingsSnapshot'
+import { sofFromRatings } from '../format'
 
 type Props = { snap: StandingsSnapshot | null; playerCarIdx: number | null }
 
-const BR = 1600 / Math.LN2
 const BIN_SIZE = 500
 const SVG_W = 200
 const SVG_H = 44
@@ -56,7 +56,8 @@ function buildCard(
     return '#3a3a3a'
   })
 
-  const sof = BR * Math.log(count / ratings.reduce((s, r) => s + Math.pow(2, -r / 1600), 0))
+  // count > 0 is guaranteed above, so sofFromRatings can't return null here.
+  const sof = sofFromRatings(ratings) ?? 0
 
   const markerX = binCount > 0
     ? ((sof - rangeStart) / (rangeEnd - rangeStart)) * SVG_W

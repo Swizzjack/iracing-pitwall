@@ -1,6 +1,5 @@
 //! Weather rules — rain, temperature changes, and proactive weather briefings.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use super::{FrequencyMask, Priority, Rule, RuleEvent, SessionMask, TemplateParams};
@@ -22,18 +21,19 @@ pub struct TrackDryingRule;
 pub struct RainEscalationRule;
 
 pub struct AmbientTempChangeRule {
-    baseline: AtomicU32,
-    initialized: AtomicBool,
+    baseline: f32,
+    initialized: bool,
 }
 
 pub struct TrackTempChangeRule {
-    baseline: AtomicU32,
-    initialized: AtomicBool,
+    baseline: f32,
+    initialized: bool,
 }
 
 /// Fires N minutes before rain arrives (if forecast data available).
 /// In iRacing V1, forecast is empty, so this rule never fires — left for future use.
 pub struct RainForecastWarningRule {
+    #[allow(dead_code)] // read once forecast data exists
     minutes: u32,
 }
 
@@ -44,24 +44,15 @@ impl RainForecastWarningRule {
 
 impl AmbientTempChangeRule {
     pub fn new() -> Self {
-        Self {
-            baseline: AtomicU32::new(0),
-            initialized: AtomicBool::new(false),
-        }
+        Self { baseline: 0.0, initialized: false }
     }
 }
 
 impl TrackTempChangeRule {
     pub fn new() -> Self {
-        Self {
-            baseline: AtomicU32::new(0),
-            initialized: AtomicBool::new(false),
-        }
+        Self { baseline: 0.0, initialized: false }
     }
 }
-
-fn f32_to_bits(v: f32) -> u32 { v.to_bits() }
-fn bits_to_f32(v: u32) -> f32 { f32::from_bits(v) }
 
 impl Rule for RainStartingRule {
     fn id(&self) -> &'static str { "rain_starting" }
@@ -70,7 +61,7 @@ impl Rule for RainStartingRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         let now_wet = current.rain_intensity >= RAIN_THRESHOLD;
         let was_wet = prev.rain_intensity >= RAIN_THRESHOLD;
@@ -94,7 +85,7 @@ impl Rule for RainClearingRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         let now_dry = current.rain_intensity < RAIN_THRESHOLD;
         let was_wet = prev.rain_intensity >= RAIN_THRESHOLD;
@@ -118,7 +109,7 @@ impl Rule for TrackDryingRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         let in_drying = current.rain_intensity > DRYING_RANGE_LO
             && current.rain_intensity < DRYING_RANGE_HI;
@@ -143,7 +134,7 @@ impl Rule for RainEscalationRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         if current.rain_intensity >= HEAVY_RAIN && prev.rain_intensity < HEAVY_RAIN {
             Some(RuleEvent {
@@ -165,16 +156,15 @@ impl Rule for AmbientTempChangeRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let temp = current.ambient_temp_c;
-        if !self.initialized.load(Ordering::Relaxed) {
-            self.baseline.store(f32_to_bits(temp), Ordering::Relaxed);
-            self.initialized.store(true, Ordering::Relaxed);
+        if !self.initialized {
+            self.baseline = temp;
+            self.initialized = true;
             return None;
         }
-        let baseline = bits_to_f32(self.baseline.load(Ordering::Relaxed));
-        if (temp - baseline).abs() >= TEMP_CHANGE_C {
-            self.baseline.store(f32_to_bits(temp), Ordering::Relaxed);
+        if (temp - self.baseline).abs() >= TEMP_CHANGE_C {
+            self.baseline = temp;
             Some(RuleEvent {
                 rule_id: self.id(),
                 priority: self.priority(),
@@ -194,16 +184,15 @@ impl Rule for TrackTempChangeRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let temp = current.track_temp_c;
-        if !self.initialized.load(Ordering::Relaxed) {
-            self.baseline.store(f32_to_bits(temp), Ordering::Relaxed);
-            self.initialized.store(true, Ordering::Relaxed);
+        if !self.initialized {
+            self.baseline = temp;
+            self.initialized = true;
             return None;
         }
-        let baseline = bits_to_f32(self.baseline.load(Ordering::Relaxed));
-        if (temp - baseline).abs() >= TEMP_CHANGE_C {
-            self.baseline.store(f32_to_bits(temp), Ordering::Relaxed);
+        if (temp - self.baseline).abs() >= TEMP_CHANGE_C {
+            self.baseline = temp;
             Some(RuleEvent {
                 rule_id: self.id(),
                 priority: self.priority(),
@@ -223,7 +212,7 @@ impl Rule for RainForecastWarningRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, _current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, _current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
         // iRacing V1: no forecast data available; rule is a no-op placeholder
         None
     }
@@ -236,7 +225,7 @@ impl Rule for WeatherBriefingRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
 
         // Fire on car-entry rising edge or pit-lane exit rising edge.

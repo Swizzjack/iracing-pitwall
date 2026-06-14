@@ -1,20 +1,95 @@
 //! Position and gap rules.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::{FrequencyMask, Priority, Rule, RuleEvent, SessionMask, TemplateParams};
-use crate::race_engineer::state::EngineerState;
+use crate::race_engineer::state::{EngineerState, SessionPhase};
 
-pub struct PositionGainedRule;
-pub struct PositionLostRule;
+/// A position change is only announced once it has been held this long.
+/// Live positions flicker while cars run side by side, and the TTS callout
+/// itself takes a couple of seconds — announcing instantly means the driver
+/// hears a position they no longer hold.
+const POSITION_DEBOUNCE: Duration = Duration::from_secs(3);
+
+/// Tracks the live position and reports a change only after it has been
+/// stable for [`POSITION_DEBOUNCE`].
+#[derive(Default)]
+struct StablePositionTracker {
+    /// Last position accepted as stable (announced or silently adopted).
+    stable: Option<u32>,
+    /// Candidate position and when it was first seen.
+    pending: Option<(u32, Instant)>,
+}
+
+impl StablePositionTracker {
+    /// Feed the current live position; returns `Some((from, to))` once a new
+    /// position has held for the debounce window. The tracker adopts the new
+    /// position regardless of direction so gained/lost trackers stay in sync.
+    fn update(&mut self, pos: u32) -> Option<(u32, u32)> {
+        if pos == 0 {
+            self.pending = None;
+            return None;
+        }
+        let Some(stable) = self.stable else {
+            self.stable = Some(pos);
+            return None;
+        };
+        if pos == stable {
+            self.pending = None;
+            return None;
+        }
+        match self.pending {
+            Some((candidate, since)) if candidate == pos => {
+                if since.elapsed() >= POSITION_DEBOUNCE {
+                    self.pending = None;
+                    self.stable = Some(pos);
+                    return Some((stable, pos));
+                }
+                None
+            }
+            _ => {
+                self.pending = Some((pos, Instant::now()));
+                None
+            }
+        }
+    }
+
+    fn reset(&mut self) {
+        self.stable = None;
+        self.pending = None;
+    }
+}
+
+#[derive(Default)]
+pub struct PositionGainedRule {
+    tracker: StablePositionTracker,
+}
+
+#[derive(Default)]
+pub struct PositionLostRule {
+    tracker: StablePositionTracker,
+}
+
 /// Gap ahead — Medium frequency (longer cooldown).
-pub struct GapAheadMediumRule;
+#[derive(Default)]
+pub struct GapAheadMediumRule {
+    last_announced_gap: Option<f32>,
+}
 /// Gap ahead — High frequency (shorter cooldown).
-pub struct GapAheadHighRule;
+#[derive(Default)]
+pub struct GapAheadHighRule {
+    last_announced_gap: Option<f32>,
+}
 /// Gap behind — Medium frequency.
-pub struct GapBehindMediumRule;
+#[derive(Default)]
+pub struct GapBehindMediumRule {
+    last_announced_gap: Option<f32>,
+}
 /// Gap behind — High frequency.
-pub struct GapBehindHighRule;
+#[derive(Default)]
+pub struct GapBehindHighRule {
+    last_announced_gap: Option<f32>,
+}
 
 impl Rule for PositionGainedRule {
     fn id(&self) -> &'static str { "position_gained" }
@@ -23,18 +98,20 @@ impl Rule for PositionGainedRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        let prev = prev?;
-        if current.player_position > 0
-            && prev.player_position > 0
-            && current.player_position < prev.player_position
-        {
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        // Grid/formation shuffles are noise; the reset also re-baselines
+        // between sessions so a new race never inherits the old position.
+        if current.session_phase != SessionPhase::Racing {
+            self.tracker.reset();
+            return None;
+        }
+        let (from, to) = self.tracker.update(current.player_position)?;
+        if to < from {
             Some(RuleEvent {
                 rule_id: self.id(),
                 priority: self.priority(),
                 template_key: "position_gained",
-                params: TemplateParams::new()
-                    .set("position", current.player_position.to_string()),
+                params: TemplateParams::new().set("position", to.to_string()),
             })
         } else {
             None
@@ -49,18 +126,18 @@ impl Rule for PositionLostRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM_AND_UP }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        let prev = prev?;
-        if current.player_position > 0
-            && prev.player_position > 0
-            && current.player_position > prev.player_position
-        {
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        if current.session_phase != SessionPhase::Racing {
+            self.tracker.reset();
+            return None;
+        }
+        let (from, to) = self.tracker.update(current.player_position)?;
+        if to > from {
             Some(RuleEvent {
                 rule_id: self.id(),
                 priority: self.priority(),
                 template_key: "position_lost",
-                params: TemplateParams::new()
-                    .set("position", current.player_position.to_string()),
+                params: TemplateParams::new().set("position", to.to_string()),
             })
         } else {
             None
@@ -68,64 +145,28 @@ impl Rule for PositionLostRule {
     }
 }
 
-fn gap_ahead_event(
+fn gap_event(
     rule_id: &'static str,
-    current: &EngineerState,
-    prev: Option<&EngineerState>,
+    template_key: &'static str,
+    gap: Option<f32>,
+    in_pit: bool,
+    last_announced_gap: &mut Option<f32>,
 ) -> Option<RuleEvent> {
-    if current.in_pit {
+    if in_pit {
         return None;
     }
-    let gap = current.gap_ahead?;
-    let trend = prev
-        .and_then(|p| p.gap_ahead)
-        .map(|prev_gap| {
-            let delta = gap - prev_gap;
-            if delta < -0.2 {
-                "closing"
-            } else if delta > 0.2 {
-                "pulling away"
-            } else {
-                "holding steady"
-            }
-        })
-        .unwrap_or("holding steady");
+    let gap = gap?;
+    // Trend relative to the previous *announcement* — adjacent 10 Hz ticks
+    // only differ by milliseconds and would always read "holding steady".
+    let trend = match last_announced_gap.replace(gap) {
+        Some(prev_gap) if gap - prev_gap < -0.2 => "closing",
+        Some(prev_gap) if gap - prev_gap > 0.2 => "pulling away",
+        _ => "holding steady",
+    };
     Some(RuleEvent {
         rule_id,
         priority: Priority::Info,
-        template_key: "gap_ahead",
-        params: TemplateParams::new()
-            .set("gap", format!("{:.1}", gap))
-            .set("trend", trend.to_string()),
-    })
-}
-
-fn gap_behind_event(
-    rule_id: &'static str,
-    current: &EngineerState,
-    prev: Option<&EngineerState>,
-) -> Option<RuleEvent> {
-    if current.in_pit {
-        return None;
-    }
-    let gap = current.gap_behind?;
-    let trend = prev
-        .and_then(|p| p.gap_behind)
-        .map(|prev_gap| {
-            let delta = gap - prev_gap;
-            if delta < -0.2 {
-                "closing"
-            } else if delta > 0.2 {
-                "pulling away"
-            } else {
-                "holding steady"
-            }
-        })
-        .unwrap_or("holding steady");
-    Some(RuleEvent {
-        rule_id,
-        priority: Priority::Info,
-        template_key: "gap_behind",
+        template_key,
         params: TemplateParams::new()
             .set("gap", format!("{:.1}", gap))
             .set("trend", trend.to_string()),
@@ -139,8 +180,8 @@ impl Rule for GapAheadMediumRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        gap_ahead_event(self.id(), current, prev)
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        gap_event(self.id(), "gap_ahead", current.gap_ahead, current.in_pit, &mut self.last_announced_gap)
     }
 }
 
@@ -151,8 +192,8 @@ impl Rule for GapAheadHighRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        gap_ahead_event(self.id(), current, prev)
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        gap_event(self.id(), "gap_ahead", current.gap_ahead, current.in_pit, &mut self.last_announced_gap)
     }
 }
 
@@ -163,8 +204,8 @@ impl Rule for GapBehindMediumRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::MEDIUM }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        gap_behind_event(self.id(), current, prev)
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        gap_event(self.id(), "gap_behind", current.gap_behind, current.in_pit, &mut self.last_announced_gap)
     }
 }
 
@@ -175,7 +216,7 @@ impl Rule for GapBehindHighRule {
     fn session_mask(&self) -> SessionMask { SessionMask::RACE }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::HIGH }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
-        gap_behind_event(self.id(), current, prev)
+    fn evaluate(&mut self, current: &EngineerState, _prev: Option<&EngineerState>) -> Option<RuleEvent> {
+        gap_event(self.id(), "gap_behind", current.gap_behind, current.in_pit, &mut self.last_announced_gap)
     }
 }

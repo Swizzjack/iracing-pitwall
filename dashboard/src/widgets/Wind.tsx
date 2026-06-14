@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import type { TelemetrySnapshot } from '@shared/TelemetrySnapshot'
 import type { SessionInfoYaml } from '@shared/SessionInfoYaml'
 import { SettingsDrawer } from '../components/SettingsDrawer'
@@ -216,8 +216,13 @@ export function Wind({ snap, info }: Props) {
   const [markerStyle,   setMarkerStyle]   = useState<MarkerStyle>(() => loadSettings().markerStyle)
   const [fontScale,     setFontScale]     = useState(() => loadSettings().fontScale)
 
-  const prevWindDirRef    = useRef(0)
-  const prevCarHeadingRef = useRef(0)
+  // Unwrapped angles from the previous render: the CSS rotation transition
+  // takes the numerically shortest path, so each new angle must continue
+  // from the previously *rendered* value. Uses the documented "storing
+  // information from previous renders" pattern (guarded setState during
+  // render — re-renders before commit, no flicker) instead of mutating a
+  // ref mid-render.
+  const [prevAngles, setPrevAngles] = useState({ heading: 0, wind: 0 })
 
   function handleSpeedUnit(u: SpeedUnit)   { setSpeedUnit(u);     save(LS_UNITS, u) }
   function handleMarkerStyle(s: MarkerStyle) { setMarkerStyle(s); save(LS_MARKER_STYLE, s) }
@@ -249,15 +254,17 @@ export function Wind({ snap, info }: Props) {
   const isCalm = windVel == null || windDir == null || windVel < 0.5
 
   const rawCarHeadingDeg = ((carHeadingRad * 180 / Math.PI) % 360 + 360) % 360
-  const carHeadingDeg = unwrapAngle(prevCarHeadingRef.current, rawCarHeadingDeg)
-  prevCarHeadingRef.current = carHeadingDeg
+  const carHeadingDeg = unwrapAngle(prevAngles.heading, rawCarHeadingDeg)
 
-  let relWindDeg = prevWindDirRef.current
+  let relWindDeg = prevAngles.wind
   if (!isCalm) {
     const windDirDeg = ((windDir! * 180 / Math.PI) % 360 + 360) % 360
     const rawRelWind = ((windDirDeg - rawCarHeadingDeg) % 360 + 360) % 360
-    relWindDeg = unwrapAngle(prevWindDirRef.current, rawRelWind)
-    prevWindDirRef.current = relWindDeg
+    relWindDeg = unwrapAngle(prevAngles.wind, rawRelWind)
+  }
+
+  if (prevAngles.heading !== carHeadingDeg || prevAngles.wind !== relWindDeg) {
+    setPrevAngles({ heading: carHeadingDeg, wind: relWindDeg })
   }
 
   const markerColor = isCalm ? '#5BC9FF' : windColor(relWindDeg)

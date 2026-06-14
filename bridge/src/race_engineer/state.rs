@@ -4,8 +4,9 @@
 //! `StandingsSnapshot` into the flat struct the rule engine operates on.
 
 use std::collections::VecDeque;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use crate::telemetry::standings::StandingEntry;
 use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot};
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,9 @@ impl SessionPhase {
 // ---------------------------------------------------------------------------
 
 /// Flags relevant to the race engineer.
+// Part of the rule-author state surface: some fields have no consuming rule
+// yet (e.g. per-sector yellows aren't available in iRacing V1).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct FlagState {
     /// True if there is a full-course caution / yellow flag active.
@@ -111,15 +115,18 @@ impl FlagState {
         const CAUTION_WAVING: u32 = 0x8000;
         // "Driver's black flags" — set in global SessionFlags for the local player only
         const REPAIR: u32 = 0x00100000; // meatball flag
-        // CarIdxSessionFlags bits (per-car)
-        const CAR_BLUE: u32 = 0x0400;
-        const CAR_DEBRIS: u32 = 0x0800;
+        // CarIdxSessionFlags carries the same irsdk_Flags bit layout as the
+        // global field (irsdk_defines.h: blue=0x0020, debris=0x0040). The
+        // previous values 0x0400/0x0800 were greenHeld/tenToGo and could
+        // never represent blue/debris.
+        const CAR_BLUE: u32 = 0x0020;
+        const CAR_DEBRIS: u32 = 0x0040;
 
         let any_yellow = (session_flags & (YELLOW | YELLOW_WAVING | CAUTION | CAUTION_WAVING)) != 0;
         let any_red = (session_flags & RED) != 0;
         let any_debris = (session_flags & DEBRIS) != 0
-            || player_car_flags.map_or(false, |f| (f & CAR_DEBRIS) != 0);
-        let blue = player_car_flags.map_or(false, |f| (f & CAR_BLUE) != 0);
+            || player_car_flags.is_some_and(|f| (f & CAR_DEBRIS) != 0);
+        let blue = player_car_flags.is_some_and(|f| (f & CAR_BLUE) != 0);
         let meatball = (session_flags & REPAIR) != 0;
 
         FlagState {
@@ -139,6 +146,9 @@ impl FlagState {
 // Damage state (limited in iRacing)
 // ---------------------------------------------------------------------------
 
+// V1 placeholder surface: only `overheating` carries a real signal so far;
+// the remaining fields wait for damage telemetry rules.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct DamageState {
     pub has_aero: bool,
@@ -172,6 +182,8 @@ pub enum PitState {
     #[default]
     None,
     InLane,
+    /// Not yet derivable from telemetry (needs pit-box position detection).
+    #[allow(dead_code)]
     InBox,
 }
 
@@ -179,6 +191,9 @@ pub enum PitState {
 // EngineerState — the full snapshot passed to the rule engine
 // ---------------------------------------------------------------------------
 
+// State surface for rule authors — fields without a consuming rule yet are
+// kept deliberately (they're populated and cost nothing per tick).
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct EngineerState {
     // Session
@@ -206,6 +221,11 @@ pub struct EngineerState {
     pub best_lap_time_personal: Option<Duration>,
     /// True only on the tick where a new personal best was set (aggregator-tracked).
     pub personal_best_this_lap: bool,
+    /// True only on the tick where the just-completed lap's time was recorded.
+    /// This is ~1–2 s after the line: iRacing publishes `LapLastLapTime` with a
+    /// delay, so lap-gated rules must key off this flag — not the lap counter —
+    /// to see the fresh lap time instead of the previous lap's.
+    pub lap_just_completed: bool,
     pub best_lap_time_session: Option<Duration>,
     pub current_lap_time: Duration,
     pub last_sector_deltas: [Option<f32>; 3],
@@ -250,10 +270,21 @@ pub struct EngineerState {
 // StateAggregator — builds EngineerState from iRacing telemetry
 // ---------------------------------------------------------------------------
 
+/// Armed when the lap counter increments; resolved once `LapLastLapTime`
+/// changes (iRacing publishes the new time ~1–2 s after the line).
+struct PendingLapTime {
+    /// `LapLastLapTime` value seen at the increment tick — still the lap
+    /// before's time until iRacing updates it.
+    value_at_crossing: f32,
+    since: Instant,
+}
+
 #[derive(Default)]
 pub struct StateAggregator {
     /// Player's lap count on the last tick (to detect lap completion).
     last_lap: i32,
+    /// In-flight lap completion waiting for `LapLastLapTime` to update.
+    pending_lap_time: Option<PendingLapTime>,
     /// Last known fuel level (to compute consumption per lap).
     fuel_at_lap_start: f32,
     /// Recent fuel consumption per lap.
@@ -296,26 +327,25 @@ impl StateAggregator {
         let time_remaining = tel
             .session_time_remain
             .filter(|&t| t > 0.0 && t < 604800.0) // < 1 week
-            .map(|t| Duration::from_secs_f64(t));
+            .map(Duration::from_secs_f64);
 
         // --- Player ---
         let player_position = tel.player_position.max(0) as u32;
         let player_class_position = tel.player_class_position.max(0) as u32;
         let player_lap = tel.lap.max(0) as u32;
 
-        // Lap completion detection for tracking recent times + fuel
-        let mut personal_best_this_lap = false;
-        if tel.lap > self.last_lap && self.last_lap >= 0 && tel.lap_last_time > 0.0 {
-            let dur = Duration::from_secs_f32(tel.lap_last_time);
-            self.recent_lap_times.push_back(dur);
-            if self.recent_lap_times.len() > 8 {
-                self.recent_lap_times.pop_front();
-            }
-            // Track personal best independently of iRacing's LapBestLapTime timing
-            if self.tracked_best_lap.map_or(true, |pb| dur < pb) {
-                self.tracked_best_lap = Some(dur);
-                personal_best_this_lap = true;
-            }
+        // Lap completion detection. The lap counter increments at the line, but
+        // iRacing publishes the lap's time (LapLastLapTime) only ~1–2 s later —
+        // latching the value at the increment tick would record the *previous*
+        // lap's time and shift every lap-time announcement one lap late. The
+        // increment therefore only arms a pending latch (and handles fuel,
+        // which IS current at the crossing); the latch resolves once
+        // LapLastLapTime changes.
+        if tel.lap == self.last_lap + 1 && self.last_lap > 0 {
+            self.pending_lap_time = Some(PendingLapTime {
+                value_at_crossing: tel.lap_last_time,
+                since: Instant::now(),
+            });
             // Fuel per lap
             if self.fuel_at_lap_start > 0.0 && tel.fuel_level <= self.fuel_at_lap_start {
                 let used = self.fuel_at_lap_start - tel.fuel_level;
@@ -327,8 +357,38 @@ impl StateAggregator {
                 }
             }
             self.fuel_at_lap_start = tel.fuel_level;
+        } else if tel.lap != self.last_lap {
+            // Jump or reset (session change, tow, joining mid-session): no lap
+            // was completed under our observation — rebaseline silently.
+            self.pending_lap_time = None;
+            self.fuel_at_lap_start = tel.fuel_level;
         }
         self.last_lap = tel.lap;
+
+        let mut personal_best_this_lap = false;
+        let mut lap_just_completed = false;
+        if let Some(pending) = &self.pending_lap_time {
+            let updated =
+                tel.lap_last_time > 0.0 && tel.lap_last_time != pending.value_at_crossing;
+            // Two consecutive identical lap times never change the value; the
+            // timeout (far beyond iRacing's publish delay) records them anyway.
+            let timed_out =
+                tel.lap_last_time > 0.0 && pending.since.elapsed() > Duration::from_secs(10);
+            if updated || timed_out {
+                let dur = Duration::from_secs_f32(tel.lap_last_time);
+                self.recent_lap_times.push_back(dur);
+                if self.recent_lap_times.len() > 8 {
+                    self.recent_lap_times.pop_front();
+                }
+                // Track personal best independently of iRacing's LapBestLapTime timing
+                if self.tracked_best_lap.map_or(true, |pb| dur < pb) {
+                    self.tracked_best_lap = Some(dur);
+                    personal_best_this_lap = true;
+                }
+                lap_just_completed = true;
+                self.pending_lap_time = None;
+            }
+        }
 
         // --- Fuel ---
         let fuel_remaining_l = tel.fuel_level;
@@ -366,10 +426,11 @@ impl StateAggregator {
                 })
             })
             .filter(|&t| t < f32::MAX && t > 0.0)
-            .map(|t| Duration::from_secs_f32(t));
+            .map(Duration::from_secs_f32);
 
-        // Sector deltas from last 3 sectors vs personal best
-        let sector_deltas = [None, None, None]; // populated from sector_tracker externally if needed
+        // Sector deltas: sectors completed so far this lap vs personal best
+        // (positive = slower). Sourced from the standings' sector tracker data.
+        let sector_deltas = compute_sector_deltas(player_car_idx, standings);
 
         // --- Flags ---
         let active_flags = FlagState::from_iracing(
@@ -441,6 +502,7 @@ impl StateAggregator {
             last_lap_time,
             best_lap_time_personal,
             personal_best_this_lap,
+            lap_just_completed,
             best_lap_time_session,
             current_lap_time: Duration::from_secs_f32(tel.lap_current_time.max(0.0)),
             last_sector_deltas: sector_deltas,
@@ -500,6 +562,32 @@ fn avg3(arr: [f32; 3]) -> f32 {
     (arr[0] + arr[1] + arr[2]) / 3.0
 }
 
+/// Delta per completed sector of the current lap vs the driver's personal
+/// best for that sector (positive = slower). Covers the first three sectors;
+/// `None` where the sector hasn't been completed or no PB exists yet.
+fn compute_sector_deltas(
+    player_car_idx: i32,
+    standings: Option<&StandingsSnapshot>,
+) -> [Option<f32>; 3] {
+    let mut out = [None, None, None];
+    let Some(entry) = standings
+        .and_then(|s| s.entries.iter().find(|e| e.car_idx == player_car_idx))
+    else {
+        return out;
+    };
+    for (i, slot) in out.iter_mut().enumerate() {
+        if let (Some(&cur), Some(Some(pb))) = (
+            entry.current_lap_sectors.get(i),
+            entry.best_sector_times.get(i),
+        ) {
+            if cur > 0.0 && *pb > 0.0 {
+                *slot = Some(cur - *pb);
+            }
+        }
+    }
+    out
+}
+
 fn compute_gaps(
     is_race: bool,
     player_car_idx: i32,
@@ -528,27 +616,38 @@ fn compute_gaps(
         .collect();
     class_entries.sort_by_key(|e| e.class_position);
 
-    // Positional gaps — race only (gap_to_leader is race-order lap-delta in practice)
+    // Positional gaps — race only (gap_to_leader is race-order lap-delta in practice).
+    // Primary source is the live EstTime-based gap; the F2Time delta is kept as
+    // fallback, but F2Time only refreshes at the start/finish line in races, so
+    // on its own it repeats the same gap for a whole lap.
     let (ahead, behind) = if is_race {
         let player_entry = standings.entries.iter().find(|e| e.car_idx == player_car_idx);
         let player_gap = player_entry.and_then(|e| e.gap_to_leader);
 
-        let ahead = if player_class_pos > 1 {
-            class_entries
-                .iter()
-                .find(|e| e.class_position == player_class_pos as i32 - 1)
-                .and_then(|e| e.gap_to_leader)
-                .and_then(|ahead_gap| player_gap.map(|pg| pg - ahead_gap))
-                .filter(|&g| g >= 0.0)
-        } else {
-            None
-        };
-
-        let behind = class_entries
+        let ahead_entry = class_entries
             .iter()
-            .find(|e| e.class_position == player_class_pos as i32 + 1)
-            .and_then(|e| e.gap_to_leader)
-            .and_then(|behind_gap| player_gap.map(|pg| behind_gap - pg))
+            .find(|e| e.class_position == player_class_pos as i32 - 1)
+            .filter(|_| player_class_pos > 1);
+        let behind_entry = class_entries
+            .iter()
+            .find(|e| e.class_position == player_class_pos as i32 + 1);
+
+        let ahead = ahead_entry
+            .and_then(|a| {
+                live_gap(a, player_entry?).or_else(|| {
+                    a.gap_to_leader
+                        .and_then(|ahead_gap| player_gap.map(|pg| pg - ahead_gap))
+                })
+            })
+            .filter(|&g| g >= 0.0);
+
+        let behind = behind_entry
+            .and_then(|b| {
+                live_gap(player_entry?, b).or_else(|| {
+                    b.gap_to_leader
+                        .and_then(|behind_gap| player_gap.map(|pg| behind_gap - pg))
+                })
+            })
             .filter(|&g| g >= 0.0);
 
         (ahead, behind)
@@ -570,6 +669,34 @@ fn compute_gaps(
         .map(|e| Duration::from_secs_f32(e.last_lap_time));
 
     (ahead, behind, car_ahead_last, car_behind_last)
+}
+
+/// Live gap in seconds between two cars, derived from `CarIdxEstTime`.
+///
+/// EstTime is each car's modeled time from the S/F line to its current track
+/// position and updates continuously, but resets to 0 at the line. The number
+/// of whole-lap wraps between the two cars is recovered from the lap-counter +
+/// track-fraction progress difference, scaled by a reference lap time.
+fn live_gap(leading: &StandingEntry, trailing: &StandingEntry) -> Option<f32> {
+    let est_lead = leading.est_time?;
+    let est_trail = trailing.est_time?;
+    if leading.lap < 0 || trailing.lap < 0 {
+        return None;
+    }
+    let ref_lap = [
+        trailing.best_lap_time,
+        trailing.last_lap_time,
+        leading.best_lap_time,
+        leading.last_lap_time,
+    ]
+    .into_iter()
+    .find(|&t| t > 0.0)?;
+
+    let progress_delta = (leading.lap as f32 + leading.lap_dist_pct)
+        - (trailing.lap as f32 + trailing.lap_dist_pct);
+    let raw = est_lead - est_trail;
+    let wraps = ((progress_delta * ref_lap - raw) / ref_lap).round();
+    Some(raw + wraps * ref_lap)
 }
 
 fn compute_rival_pace(
@@ -620,4 +747,105 @@ fn compute_rival_pace(
     };
 
     (avg_last, min_best)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tel(lap: i32, lap_last_time: f32) -> TelemetrySnapshot {
+        TelemetrySnapshot {
+            lap,
+            lap_last_time,
+            fuel_level: 30.0,
+            ..Default::default()
+        }
+    }
+
+    /// iRacing publishes LapLastLapTime ~1–2 s after the lap counter
+    /// increments — the lap must be recorded when the value updates, not at
+    /// the increment tick (which still holds the previous lap's time).
+    #[test]
+    fn lap_time_recorded_when_value_updates_not_at_increment() {
+        let mut agg = StateAggregator::default();
+        let s = agg.build_state(&tel(1, 0.0), None);
+        assert!(!s.lap_just_completed);
+
+        // Crossed the line: counter increments, time not yet published
+        let s = agg.build_state(&tel(2, 0.0), None);
+        assert!(!s.lap_just_completed);
+        assert!(s.recent_lap_times.is_empty());
+
+        // Time published a moment later → recorded now, flagged as PB
+        let s = agg.build_state(&tel(2, 92.5), None);
+        assert!(s.lap_just_completed);
+        assert!(s.personal_best_this_lap);
+        assert_eq!(s.recent_lap_times.len(), 1);
+
+        // Next lap, slower: recorded, but no PB
+        let s = agg.build_state(&tel(3, 92.5), None);
+        assert!(!s.lap_just_completed);
+        let s = agg.build_state(&tel(3, 95.0), None);
+        assert!(s.lap_just_completed);
+        assert!(!s.personal_best_this_lap);
+        assert_eq!(s.recent_lap_times.len(), 2);
+    }
+
+    /// Joining a session mid-race must not record the stale LapLastLapTime
+    /// (it belongs to a lap we never observed).
+    #[test]
+    fn joining_mid_session_records_no_stale_lap() {
+        let mut agg = StateAggregator::default();
+        let s = agg.build_state(&tel(8, 91.0), None);
+        assert!(!s.lap_just_completed);
+        let s = agg.build_state(&tel(8, 91.0), None);
+        assert!(!s.lap_just_completed);
+        assert!(s.recent_lap_times.is_empty());
+
+        // The first fully observed lap is recorded normally
+        let s = agg.build_state(&tel(9, 91.0), None);
+        assert!(!s.lap_just_completed);
+        let s = agg.build_state(&tel(9, 90.3), None);
+        assert!(s.lap_just_completed);
+        assert_eq!(s.recent_lap_times.len(), 1);
+    }
+
+    fn entry(lap: i32, pct: f32, est: f32) -> StandingEntry {
+        StandingEntry {
+            lap,
+            lap_dist_pct: pct,
+            est_time: Some(est),
+            best_lap_time: 90.0,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn live_gap_same_lap() {
+        let lead = entry(10, 0.65, 65.0);
+        let trail = entry(10, 0.60, 60.0);
+        assert!((live_gap(&lead, &trail).unwrap() - 5.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn live_gap_across_start_finish() {
+        // Leader just crossed the line (EstTime reset), trailer hasn't yet
+        let lead = entry(11, 0.02, 2.0);
+        let trail = entry(10, 0.97, 88.0);
+        assert!((live_gap(&lead, &trail).unwrap() - 4.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn live_gap_full_lap_ahead() {
+        let lead = entry(11, 0.5, 45.0);
+        let trail = entry(10, 0.5, 45.0);
+        assert!((live_gap(&lead, &trail).unwrap() - 90.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn live_gap_requires_est_time() {
+        let lead = StandingEntry { est_time: None, ..entry(10, 0.5, 0.0) };
+        let trail = entry(10, 0.4, 40.0);
+        assert!(live_gap(&lead, &trail).is_none());
+    }
 }

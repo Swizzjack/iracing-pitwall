@@ -8,7 +8,7 @@ use crate::iracing_sdk::IRacingClient;
 use serde::Serialize;
 use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, TS)]
 #[ts(export, export_to = "../shared/")]
 #[serde(rename_all = "camelCase")]
 pub struct TelemetrySnapshot {
@@ -51,8 +51,10 @@ pub struct TelemetrySnapshot {
 
     // Per-car session flags for the player (blue flag, drive-through penalty, etc.)
     pub player_car_session_flags: Option<u32>,
-    /// True when iRacing has issued a drive-through penalty for the player's car
-    /// (CarIdxSessionFlags bit 0x10000000 = irsdk_hasDriveThrough).
+    /// True when iRacing has issued a drive-through penalty for the player's car.
+    /// Bit 0x10000000 of CarIdxSessionFlags — note this is NOT part of the
+    /// public irsdk_defines.h enum (which lists 0x10000000 as irsdk_startHidden);
+    /// determined empirically via the SDK debug overlay.
     pub player_has_drivethrough_penalty: bool,
 
     // Tires — 4 corners × (carcass temp L/M/R, pressure, wear L/M/R)
@@ -197,30 +199,31 @@ impl TelemetrySnapshot {
             player_car_my_incident_count: client.get_i32("PlayerCarMyIncidentCount").ok(),
             player_car_session_flags,
             player_has_drivethrough_penalty: player_car_session_flags
-                .map_or(false, |f| (f & 0x10000000) != 0),
+                .is_some_and(|f| (f & 0x10000000) != 0),
 
-            // Tires
-            tire_temp_lf: corner_temps(client, "LF")?,
-            tire_temp_rf: corner_temps(client, "RF")?,
-            tire_temp_lr: corner_temps(client, "LR")?,
-            tire_temp_rr: corner_temps(client, "RR")?,
+            // Tires — var names spelled out as literals: this runs at 60 Hz,
+            // so no per-frame format!() allocations, and the names stay greppable.
+            tire_temp_lf: read3(client, ["LFtempCL", "LFtempCM", "LFtempCR"])?,
+            tire_temp_rf: read3(client, ["RFtempCL", "RFtempCM", "RFtempCR"])?,
+            tire_temp_lr: read3(client, ["LRtempCL", "LRtempCM", "LRtempCR"])?,
+            tire_temp_rr: read3(client, ["RRtempCL", "RRtempCM", "RRtempCR"])?,
             tire_cold_pressure: [
                 client.get_f32("LFcoldPressure")?,
                 client.get_f32("RFcoldPressure")?,
                 client.get_f32("LRcoldPressure")?,
                 client.get_f32("RRcoldPressure")?,
             ],
-            tire_wear_lf: corner_wear(client, "LF")?,
-            tire_wear_rf: corner_wear(client, "RF")?,
-            tire_wear_lr: corner_wear(client, "LR")?,
-            tire_wear_rr: corner_wear(client, "RR")?,
-            tire_pressure: four_corners_opt(client, "pressure"),
-            tire_temp_surface_lf: corner_surface_temps_opt(client, "LF"),
-            tire_temp_surface_rf: corner_surface_temps_opt(client, "RF"),
-            tire_temp_surface_lr: corner_surface_temps_opt(client, "LR"),
-            tire_temp_surface_rr: corner_surface_temps_opt(client, "RR"),
-            tire_speed: four_corners_opt(client, "speed"),
-            tire_ride_height: four_corners_opt(client, "rideHeight"),
+            tire_wear_lf: read3(client, ["LFwearL", "LFwearM", "LFwearR"])?,
+            tire_wear_rf: read3(client, ["RFwearL", "RFwearM", "RFwearR"])?,
+            tire_wear_lr: read3(client, ["LRwearL", "LRwearM", "LRwearR"])?,
+            tire_wear_rr: read3(client, ["RRwearL", "RRwearM", "RRwearR"])?,
+            tire_pressure: read4_opt(client, ["LFpressure", "RFpressure", "LRpressure", "RRpressure"]),
+            tire_temp_surface_lf: read3_opt(client, ["LFtempL", "LFtempM", "LFtempR"]),
+            tire_temp_surface_rf: read3_opt(client, ["RFtempL", "RFtempM", "RFtempR"]),
+            tire_temp_surface_lr: read3_opt(client, ["LRtempL", "LRtempM", "LRtempR"]),
+            tire_temp_surface_rr: read3_opt(client, ["RRtempL", "RRtempM", "RRtempR"]),
+            tire_speed: read4_opt(client, ["LFspeed", "RFspeed", "LRspeed", "RRspeed"]),
+            tire_ride_height: read4_opt(client, ["LFrideHeight", "RFrideHeight", "LRrideHeight", "RRrideHeight"]),
 
             // Engine
             water_temp: client.get_f32("WaterTemp")?,
@@ -256,7 +259,13 @@ impl TelemetrySnapshot {
 
             // Race format / remaining
             session_time_remain: client.get_f64("SessionTimeRemain").ok(),
-            session_laps_remain: client.get_i32("SessionLapsRemain").ok(),
+            // SessionLapsRemain is the deprecated counter and reports the lap
+            // count shifted by one ("use SessionLapsRemainEx" per the SDK docs);
+            // keep it only as a fallback for very old builds.
+            session_laps_remain: client
+                .get_i32("SessionLapsRemainEx")
+                .or_else(|_| client.get_i32("SessionLapsRemain"))
+                .ok(),
             session_time_total: client.get_f64("SessionTimeTotal").ok(),
             session_laps_total: client.get_i32("SessionLapsTotal").ok(),
 
@@ -296,35 +305,29 @@ impl TelemetrySnapshot {
     }
 }
 
-fn corner_temps(client: &IRacingClient, prefix: &str) -> Result<[f32; 3]> {
+fn read3(client: &IRacingClient, names: [&str; 3]) -> Result<[f32; 3]> {
     Ok([
-        client.get_f32(&format!("{prefix}tempCL"))?,
-        client.get_f32(&format!("{prefix}tempCM"))?,
-        client.get_f32(&format!("{prefix}tempCR"))?,
+        client.get_f32(names[0])?,
+        client.get_f32(names[1])?,
+        client.get_f32(names[2])?,
     ])
 }
 
-fn corner_wear(client: &IRacingClient, prefix: &str) -> Result<[f32; 3]> {
-    Ok([
-        client.get_f32(&format!("{prefix}wearL"))?,
-        client.get_f32(&format!("{prefix}wearM"))?,
-        client.get_f32(&format!("{prefix}wearR"))?,
-    ])
-}
-
-fn corner_surface_temps_opt(client: &IRacingClient, prefix: &str) -> Option<[f32; 3]> {
+/// `None` if any of the vars is missing (car class doesn't expose them).
+fn read3_opt(client: &IRacingClient, names: [&str; 3]) -> Option<[f32; 3]> {
     Some([
-        client.get_f32(&format!("{prefix}tempL")).ok()?,
-        client.get_f32(&format!("{prefix}tempM")).ok()?,
-        client.get_f32(&format!("{prefix}tempR")).ok()?,
+        client.get_f32(names[0]).ok()?,
+        client.get_f32(names[1]).ok()?,
+        client.get_f32(names[2]).ok()?,
     ])
 }
 
-fn four_corners_opt(client: &IRacingClient, suffix: &str) -> Option<[f32; 4]> {
+/// `None` if any of the vars is missing (car class doesn't expose them).
+fn read4_opt(client: &IRacingClient, names: [&str; 4]) -> Option<[f32; 4]> {
     Some([
-        client.get_f32(&format!("LF{suffix}")).ok()?,
-        client.get_f32(&format!("RF{suffix}")).ok()?,
-        client.get_f32(&format!("LR{suffix}")).ok()?,
-        client.get_f32(&format!("RR{suffix}")).ok()?,
+        client.get_f32(names[0]).ok()?,
+        client.get_f32(names[1]).ok()?,
+        client.get_f32(names[2]).ok()?,
+        client.get_f32(names[3]).ok()?,
     ])
 }

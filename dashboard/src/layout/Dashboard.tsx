@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import GridLayout, { useContainerWidth } from 'react-grid-layout'
 import type { LayoutItem } from 'react-grid-layout'
 import { REGISTRY, type WidgetData } from './registry'
@@ -22,12 +23,19 @@ function getItemLayout(id: string, layout: LayoutItem[]): LayoutItem {
 export function Dashboard({ data, visible, layout, editing, onLayoutChange, onRemove }: Props) {
   const { width, containerRef } = useContainerWidth()
 
+  // Stable array identity: rebuilding the layout per render would make
+  // GridLayout reconcile its grid on every 60 Hz telemetry frame.
+  const gridLayout = useMemo(
+    () => visible.map((id) => getItemLayout(id, layout)),
+    [visible, layout],
+  )
+
   return (
     <div ref={containerRef as React.RefObject<HTMLDivElement>}>
       <GridLayout
         className={editing ? 'editing' : ''}
         width={width}
-        layout={visible.map((id) => getItemLayout(id, layout))}
+        layout={gridLayout}
         gridConfig={{ cols: 12, rowHeight: 36, margin: [12, 12], containerPadding: [12, 12], maxRows: Infinity }}
         dragConfig={{ enabled: editing, handle: '.card > h2' }}
         resizeConfig={{ enabled: editing, handles: ['se' as const] }}
@@ -43,7 +51,7 @@ export function Dashboard({ data, visible, layout, editing, onLayoutChange, onRe
                 <button
                   className="widget-remove"
                   onClick={() => onRemove(id)}
-                  title="Widget entfernen"
+                  title="Remove widget"
                 >
                   ×
                 </button>

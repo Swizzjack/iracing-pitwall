@@ -3,7 +3,10 @@
 //! Tokio runtime, HTTP+WebSocket server, iRacing SDK reader.
 
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
-#![allow(dead_code)]
+// On non-Windows hosts the whole SDK consumer chain hangs off the
+// cfg(windows) sdk_loop, so dead-code analysis would flag it all.
+// Windows builds (the shipped artifact) still get real dead-code checks.
+#![cfg_attr(not(windows), allow(dead_code))]
 
 mod config;
 mod error;
@@ -90,7 +93,9 @@ async fn main() -> Result<()> {
             log::info!("update available: v{}", i.latest_version);
             let _ = upd_tx.send(Some(i));
         }
-        std::future::pending::<()>().await;
+        // Task ends here. The WS handler tolerates the closed channel, and
+        // late-connecting clients still see the last value via the initial
+        // `borrow_and_update()` replay.
     });
 
     let lan_url = detect_lan_ip().map(|ip| format!("http://{}:{}/", ip, cfg.ws_port));

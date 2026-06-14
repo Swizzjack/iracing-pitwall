@@ -6,9 +6,6 @@ pub const PIPER_VERSION: &str = "2023.11.14-2";
 pub const PIPER_DOWNLOAD_URL: &str =
     "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip";
 
-pub const RADIO_CHECK_PHRASE: &str =
-    "Radio check, radio check. Box this lap, box this lap. Push now, you have good pace.";
-
 /// A voice available for download and use with Piper.
 #[derive(Debug, Clone)]
 pub struct VoiceDefinition {

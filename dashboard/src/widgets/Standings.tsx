@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import type { StandingsSnapshot } from '@shared/StandingsSnapshot'
 import type { StandingEntry } from '@shared/StandingEntry'
-import { fmtLapTime, hexFromClassColor, readableTextOn, LIC_COLORS } from '../format'
+import { fmtLapTime, hexFromClassColor, readableTextOn, sofFromRatings, LIC_COLORS } from '../format'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { StandingsSettings } from './StandingsSettings'
 import type { ColId } from './StandingsSettings'
@@ -207,7 +207,7 @@ export function Standings({ snap, playerCarIdx }: Props) {
   useEffect(() => {
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(config))
-    } catch {}
+    } catch { /* localStorage unavailable */ }
   }, [config])
 
   const sessionBestLap = useMemo(() => {
@@ -236,7 +236,6 @@ export function Standings({ snap, playerCarIdx }: Props) {
 
   const sofByClass = useMemo(() => {
     if (!snap) return []
-    const BR = 1600 / Math.LN2
     const byClass = new Map<number, { name: string; color: string | null; ratings: number[] }>()
     for (const e of snap.entries) {
       if (!byClass.has(e.carClassId))
@@ -248,8 +247,8 @@ export function Standings({ snap, playerCarIdx }: Props) {
       : null
     return [...byClass.entries()]
       .map(([classId, { name, color, ratings }]) => {
-        if (ratings.length === 0) return null
-        const sof = BR * Math.log(ratings.length / ratings.reduce((s, r) => s + Math.pow(2, -r / 1600), 0))
+        const sof = sofFromRatings(ratings)
+        if (sof == null) return null
         return { classId, name, color, sof: Math.round(sof) }
       })
       .filter((x): x is { classId: number; name: string; color: string | null; sof: number } => x != null)
@@ -435,8 +434,9 @@ export function Standings({ snap, playerCarIdx }: Props) {
             return { ...prev, hidden }
           })}
           onResetWidth={id => setConfig(prev => {
-            const { [id]: _, ...rest } = prev.widths
-            return { ...prev, widths: rest as Partial<Record<ColId, number>> }
+            const widths = { ...prev.widths }
+            delete widths[id]
+            return { ...prev, widths }
           })}
           onResetAllWidths={() => setConfig(prev => ({ ...prev, widths: {} }))}
           onFontScaleChange={fontScale => setConfig(prev => ({ ...prev, fontScale }))}

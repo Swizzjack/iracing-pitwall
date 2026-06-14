@@ -43,13 +43,7 @@ impl TrackMapSnapshot {
         recorder: &TrackRecorder,
         player_car_idx: i32,
     ) -> Result<Self> {
-        let wi = &yaml.weekend_info;
-        let config = wi.track_config_name.trim();
-        let track_key = if config.is_empty() {
-            wi.track_name.clone()
-        } else {
-            format!("{}_{}", wi.track_name, config.replace(' ', "_"))
-        };
+        let track_key = crate::telemetry::track_recorder::track_key(&yaml.weekend_info);
 
         let lap_dist_pcts = client.get_f32_array("CarIdxLapDistPct")?;
         let class_positions = client.get_i32_array("CarIdxClassPosition")?;

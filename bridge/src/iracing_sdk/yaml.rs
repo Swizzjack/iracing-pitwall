@@ -26,7 +26,7 @@ fn keep_sections(yaml: &str, keep: &[&str]) -> String {
         let is_top_level = matches!(first, Some(c) if !c.is_whitespace() && c != '#' && c != '-' && c != '.');
         if is_top_level {
             let section_name = line.split(':').next().unwrap_or("").trim();
-            in_section = keep.iter().any(|k| *k == section_name);
+            in_section = keep.contains(&section_name);
         }
         if in_section {
             out.push_str(line);

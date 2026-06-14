@@ -16,8 +16,7 @@
     "lucide-react": "^1.14.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "react-grid-layout": "^2.2.3",
-    "uplot": "^1.6.32"
+    "react-grid-layout": "^2.2.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

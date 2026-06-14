@@ -18,7 +18,7 @@ impl Rule for DamageReportedRule {
     fn session_mask(&self) -> SessionMask { SessionMask::ALL }
     fn frequency_mask(&self) -> FrequencyMask { FrequencyMask::ALL }
 
-    fn evaluate(&self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
+    fn evaluate(&mut self, current: &EngineerState, prev: Option<&EngineerState>) -> Option<RuleEvent> {
         let prev = prev?;
         let new_aero = current.damage.has_aero && !prev.damage.has_aero;
         let new_susp = current.damage.has_suspension && !prev.damage.has_suspension;

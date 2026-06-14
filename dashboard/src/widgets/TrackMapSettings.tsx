@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 interface Props {
   trackWidth: number
@@ -35,10 +35,9 @@ export function TrackMapSettings({
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  // Reset confirm state when the map disappears (delete succeeded or track changed).
-  useEffect(() => {
-    if (!hasMap) setConfirmDelete(false)
-  }, [hasMap])
+  // The armed state is only meaningful while a map exists — derived instead
+  // of being reset via an effect when the map disappears.
+  const showConfirm = confirmDelete && hasMap
 
   return (
     <>
@@ -130,7 +129,7 @@ export function TrackMapSettings({
         <div className="settings-footer-btns">
           <button className="settings-btn" onClick={onResetAll}>Reset all</button>
           {hasMap && (
-            confirmDelete ? (
+            showConfirm ? (
               <button
                 className="settings-btn settings-btn-active"
                 onClick={() => { if (trackKey) onDelete(trackKey); setConfirmDelete(false) }}

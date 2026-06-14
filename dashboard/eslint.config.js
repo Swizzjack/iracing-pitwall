@@ -18,5 +18,13 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Widgets deliberately co-locate their settings constants/types with
+      // the component (Tire/Electronics/… + *Settings), and registry.tsx
+      // wraps all widgets in memo() next to the REGISTRY table. The rule
+      // only affects Vite HMR granularity (full reload instead of fast
+      // refresh for those modules), not correctness.
+      'react-refresh/only-export-components': 'off',
+    },
   },
 ])

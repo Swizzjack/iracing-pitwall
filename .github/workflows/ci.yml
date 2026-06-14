@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Single sequential job: `cargo test` generates the ts-rs bindings into
+# shared/ (gitignored), which the dashboard build consumes — same order
+# as build-release.sh.
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-embed's #[folder = "../dashboard/dist"] must exist at compile
+      # time; tests and clippy don't need the real assets.
+      - run: mkdir -p dashboard/dist && touch dashboard/dist/index.html
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bridge
+
+      - name: Bridge tests (also exports shared/ ts-rs bindings)
+        run: cargo test
+        working-directory: bridge
+      - name: Bridge lints
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: bridge
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Dashboard install
+        run: npm ci
+        working-directory: dashboard
+      - name: Dashboard lint
+        run: npm run lint
+        working-directory: dashboard
+      - name: Dashboard build (tsc + vite)
+        run: npm run build
+        working-directory: dashboard

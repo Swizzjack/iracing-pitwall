@@ -38,6 +38,16 @@ export const LIC_COLORS: Record<string, { bg: string; fg: string }> = {
   W: { bg: 'rgba(40, 34, 0, 0.82)',   fg: '#ffd966' },
 }
 
+/**
+ * iRacing Strength-of-Field over a set of iRatings:
+ * SoF = (1600/ln 2) · ln( n / Σ 2^(−r/1600) ). Null for an empty set.
+ */
+export function sofFromRatings(ratings: number[]): number | null {
+  if (ratings.length === 0) return null
+  const BR = 1600 / Math.LN2
+  return BR * Math.log(ratings.length / ratings.reduce((s, r) => s + Math.pow(2, -r / 1600), 0))
+}
+
 export function fmtDuration(sec: number): string {
   if (!(sec >= 0)) return '—'
   const h = Math.floor(sec / 3600)
