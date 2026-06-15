@@ -14,6 +14,7 @@ import { Tire } from '../widgets/Tire'
 import { LapHistory } from '../widgets/LapHistory'
 import { Wind } from '../widgets/Wind'
 import { EngineerTranscript } from '../widgets/EngineerTranscript'
+import { Acceleration } from '../widgets/Acceleration'
 
 export type WidgetData = {
   tel: TelemetrySnapshot | null
@@ -46,6 +47,7 @@ const TireM = memo(Tire)
 const LapHistoryM = memo(LapHistory)
 const WindM = memo(Wind)
 const EngineerTranscriptM = memo(EngineerTranscript)
+const AccelerationM = memo(Acceleration)
 
 export const REGISTRY: WidgetDef[] = [
   {
@@ -113,5 +115,11 @@ export const REGISTRY: WidgetDef[] = [
     title: 'Engineer Transcript',
     render: () => <EngineerTranscriptM />,
     default: { w: 4, h: 9, minW: 3, minH: 4 },
+  },
+  {
+    id: 'acceleration',
+    title: 'Acceleration',
+    render: (d) => <AccelerationM snap={d.tel} />,
+    default: { w: 5, h: 9, minW: 3, minH: 5 },
   },
 ]
