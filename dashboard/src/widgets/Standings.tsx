@@ -14,7 +14,7 @@ interface Props {
 const DEFAULT_ORDER: ColId[] = ['pos', 'car', 'num', 'driver', 'lap', 'last', 'best', 'gap', 'pit', 'tire', 'p2p', 'sectors', 'rating']
 const TH_LABELS: Record<ColId, string> = {
   pos: 'P', car: 'Car', num: '#', driver: 'Driver', lap: 'Lap',
-  last: 'Last', best: 'Best', gap: 'Gap', pit: 'Pit', tire: 'TC', p2p: 'P2P',
+  last: 'Last', best: 'Best', gap: 'Gap', pit: 'Pit', tire: 'TC', p2p: 'P2P', p2p_cooldown: 'Cooldown',
   sectors: '', rating: 'Rating',
 }
 
@@ -31,6 +31,7 @@ interface Persisted {
   fontScale: number
   sortBy: ColId | null
   sortDir: SortDir
+  splitP2PCooldown: boolean
 }
 
 function loadConfig(): Persisted {
@@ -42,6 +43,7 @@ function loadConfig(): Persisted {
     fontScale: 1,
     sortBy: null,
     sortDir: 'asc',
+    splitP2PCooldown: false,
   }
   try {
     const raw = localStorage.getItem(LS_KEY)
@@ -86,6 +88,7 @@ function loadConfig(): Persisted {
       fontScale: parsed.fontScale ?? 1,
       sortBy: parsed.sortBy ?? null,
       sortDir: parsed.sortDir ?? 'asc',
+      splitP2PCooldown: parsed.splitP2PCooldown ?? false,
     }
   } catch {
     return defaults
@@ -188,6 +191,11 @@ function compareEntries(a: StandingEntry, b: StandingEntry, col: ColId, dir: Sor
     case 'p2p': {
       const av = a.p2pRemaining ?? Infinity
       const bv = b.p2pRemaining ?? Infinity
+      return sign * (av - bv)
+    }
+    case 'p2p_cooldown': {
+      const av = a.p2pCooldown ?? Infinity
+      const bv = b.p2pCooldown ?? Infinity
       return sign * (av - bv)
     }
     case 'rating': return sign * (a.irating - b.irating)
@@ -306,6 +314,10 @@ export function Standings({ snap, playerCarIdx }: Props) {
   }
 
   const visibleCols = colOrder.filter(id => !hiddenCols.has(id))
+  if (config.splitP2PCooldown) {
+    const p2pIdx = visibleCols.indexOf('p2p')
+    if (p2pIdx !== -1) visibleCols.splice(p2pIdx + 1, 0, 'p2p_cooldown')
+  }
   const nSectors = snap.sessionBestSectors.length
 
   function thCells(id: ColId) {
@@ -354,6 +366,11 @@ export function Standings({ snap, playerCarIdx }: Props) {
       ]
       case 'tire': return [<td key="tire"><TireBadge compound={e.tireCompound} /></td>]
       case 'p2p': {
+        if (config.splitP2PCooldown) {
+          const style = e.p2pActive ? { color: '#22c55e', fontWeight: 600 } : undefined
+          const text = e.p2pRemaining != null ? fmtP2P(e.p2pRemaining) : '—'
+          return [<td key="p2p" style={style}>{text}</td>]
+        }
         const style = e.p2pActive
           ? { color: '#22c55e', fontWeight: 600 }
           : e.p2pCooldown != null
@@ -365,6 +382,11 @@ export function Standings({ snap, playerCarIdx }: Props) {
         return [
           <td key="p2p" title={e.p2pCooldown != null ? 'P2P cooldown' : undefined} style={style}>{text}</td>
         ]
+      }
+      case 'p2p_cooldown': {
+        const style = e.p2pCooldown != null ? { color: '#ef4444', fontWeight: 600 } : undefined
+        const text = e.p2pCooldown != null ? fmtP2P(e.p2pCooldown) : '—'
+        return [<td key="p2p_cooldown" title="P2P cooldown" style={style}>{text}</td>]
       }
       case 'sectors': return Array.from({ length: nSectors }, (_, si) => {
         const last = e.lastSectorTimes[si]
@@ -426,6 +448,7 @@ export function Standings({ snap, playerCarIdx }: Props) {
           hidden={hiddenCols}
           widths={widths}
           fontScale={fontScale}
+          splitP2PCooldown={config.splitP2PCooldown}
           onOrderChange={order => setConfig(prev => ({ ...prev, order }))}
           onToggle={id => setConfig(prev => {
             const hidden = prev.hidden.includes(id)
@@ -440,6 +463,7 @@ export function Standings({ snap, playerCarIdx }: Props) {
           })}
           onResetAllWidths={() => setConfig(prev => ({ ...prev, widths: {} }))}
           onFontScaleChange={fontScale => setConfig(prev => ({ ...prev, fontScale }))}
+          onSplitP2PCooldownChange={splitP2PCooldown => setConfig(prev => ({ ...prev, splitP2PCooldown }))}
           onResetAll={() => setConfig({
             v: SCHEMA_VERSION,
             order: [...DEFAULT_ORDER],
@@ -448,6 +472,7 @@ export function Standings({ snap, playerCarIdx }: Props) {
             fontScale: 1,
             sortBy: null,
             sortDir: 'asc',
+            splitP2PCooldown: false,
           })}
         />
       </SettingsDrawer>

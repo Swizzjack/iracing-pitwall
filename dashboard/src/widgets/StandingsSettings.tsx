@@ -14,12 +14,12 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
-export type ColId = 'pos' | 'car' | 'num' | 'driver' | 'lap' | 'last' | 'best' | 'gap' | 'pit' | 'tire' | 'p2p' | 'sectors' | 'rating'
+export type ColId = 'pos' | 'car' | 'num' | 'driver' | 'lap' | 'last' | 'best' | 'gap' | 'pit' | 'tire' | 'p2p' | 'p2p_cooldown' | 'sectors' | 'rating'
 
 const COL_LABELS: Record<ColId, string> = {
   pos: 'Position', car: 'Car', num: '#', driver: 'Driver', lap: 'Lap',
   last: 'Last Lap', best: 'Best Lap', gap: 'Gap', pit: 'Pit Stop',
-  tire: 'Tire', p2p: 'P2P', sectors: 'Sectors', rating: 'Rating',
+  tire: 'Tire', p2p: 'P2P', p2p_cooldown: 'Cooldown', sectors: 'Sectors', rating: 'Rating',
 }
 
 interface RowProps {
@@ -62,18 +62,20 @@ interface Props {
   hidden: Set<ColId>
   widths: Partial<Record<ColId, number>>
   fontScale: number
+  splitP2PCooldown: boolean
   onOrderChange: (order: ColId[]) => void
   onToggle: (id: ColId) => void
   onResetWidth: (id: ColId) => void
   onResetAllWidths: () => void
   onFontScaleChange: (scale: number) => void
+  onSplitP2PCooldownChange: (value: boolean) => void
   onResetAll: () => void
 }
 
 export function StandingsSettings({
-  order, hidden, widths, fontScale,
+  order, hidden, widths, fontScale, splitP2PCooldown,
   onOrderChange, onToggle, onResetWidth, onResetAllWidths,
-  onFontScaleChange, onResetAll,
+  onFontScaleChange, onSplitP2PCooldownChange, onResetAll,
 }: Props) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -106,6 +108,22 @@ export function StandingsSettings({
       </div>
 
       <div className="settings-drawer-footer">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={splitP2PCooldown}
+              onChange={e => onSplitP2PCooldownChange(e.target.checked)}
+            />
+            <span className="toggle-track" />
+          </label>
+          <span
+            style={{ color: splitP2PCooldown ? '#ccc' : '#555', fontSize: 'var(--settings-fs)' }}
+            title="Show the P2P cooldown timer in its own column instead of combining it with the P2P column"
+          >
+            Split P2P cooldown into its own column
+          </span>
+        </div>
         <div className="settings-footer-row">
           <label>Font size</label>
           <input
