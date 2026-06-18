@@ -119,18 +119,14 @@ function TireBadge({ compound }: { compound: number | null }) {
   return <span className="rating-badge" style={{ background: bg, color: fg }}>{txt}</span>
 }
 
-function ClassBadge({ classPos, classColor, finished }: {
+function ClassBadge({ classPos, classColor }: {
   classPos: number
   classColor: bigint | null
-  finished: boolean
 }) {
   const bg = hexFromClassColor(classColor) ?? '#444'
   const fg = readableTextOn(bg)
   return (
-    <span
-      className={`class-badge${finished ? ' class-badge-finished' : ''}`}
-      style={{ background: bg, color: fg }}
-    >
+    <span className="class-badge" style={{ background: bg, color: fg }}>
       <span className="class-badge-pos">{classPos > 0 ? classPos : '—'}</span>
     </span>
   )
@@ -348,7 +344,7 @@ export function Standings({ snap, playerCarIdx }: Props) {
     switch (id) {
       case 'pos': return [
         <td key="pos">
-          <ClassBadge classPos={e.classPosition} classColor={e.carClassColor} finished={e.finished} />
+          <ClassBadge classPos={e.classPosition} classColor={e.carClassColor} />
         </td>
       ]
       case 'car': return [<td key="car" className="manufacturer">{e.manufacturer ?? '—'}</td>]

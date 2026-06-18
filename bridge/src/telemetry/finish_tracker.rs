@@ -13,6 +13,13 @@ use std::collections::{HashMap, HashSet};
 /// 0x4 is the GREEN flag — do not confuse the two.
 const IRSDK_CHECKERED: u32 = 0x0000_0001;
 
+/// iRacing `SessionState` value for CoolDown — the session is over and
+/// `ResultsPositions` holds the final official classification. Enum:
+/// 0=Invalid 1=GetInCar 2=Warmup 3=ParadeLaps 4=Racing 5=Checkered 6=CoolDown
+/// (see `race_engineer::state::SessionPhase`). NOTE: 5 (Checkered) means the
+/// leader finished but the race may still be running — only 6 is truly final.
+const SESSION_STATE_COOLDOWN: i32 = 6;
+
 /// Tracks which cars have crossed the S/F line under the checkered flag and
 /// stores frozen copies of their StandingEntry from that moment.
 #[derive(Debug, Default)]
@@ -22,6 +29,9 @@ pub struct FinishTracker {
     /// False until the first `observe()` call after a reset.
     initialized: bool,
     checkered_seen: bool,
+    /// Latched once `SessionState` reaches CoolDown (6) — the session is over
+    /// and `ResultsPositions` is the final official classification.
+    finished_seen: bool,
     /// Set to true once `checkered_edge_fired()` has returned `Some`.
     edge_consumed: bool,
     /// CarIdxLap value from the previous observe() call.
@@ -50,6 +60,7 @@ impl FinishTracker {
             self.last_session_num = session_num;
             self.initialized = false;
             self.checkered_seen = false;
+            self.finished_seen = false;
             self.edge_consumed = false;
             self.prev_lap.clear();
             self.incremented_this_tick.clear();
@@ -68,6 +79,16 @@ impl FinishTracker {
                 log::info!("finish_tracker: checkered flag seen");
             }
             self.checkered_seen = true;
+        }
+
+        // Latch the truly-final state. Unlike the checkered flag (leader done,
+        // race may continue), CoolDown means the session has ended and the
+        // ResultsPositions YAML carries the final official classification.
+        if client.get_i32("SessionState")? == SESSION_STATE_COOLDOWN {
+            if !self.finished_seen {
+                log::info!("finish_tracker: session entered CoolDown (final results)");
+            }
+            self.finished_seen = true;
         }
 
         // Detect lap-counter increments vs. previous tick.
@@ -96,6 +117,13 @@ impl FinishTracker {
     /// Whether the session-wide checkered flag has been observed.
     pub fn checkered(&self) -> bool {
         self.checkered_seen
+    }
+
+    /// Whether the session has reached CoolDown — i.e. the race is fully over
+    /// and `ResultsPositions` is the final official result. Use this (not
+    /// `checkered()`) to gate the results-based standings overwrite.
+    pub fn session_finished(&self) -> bool {
+        self.finished_seen
     }
 
     /// Returns the current `sub_session_id` exactly once when the checkered flag

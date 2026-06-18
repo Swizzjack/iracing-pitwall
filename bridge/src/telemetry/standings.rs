@@ -75,6 +75,17 @@ pub struct StandingEntry {
     pub est_time: Option<f32>,
 }
 
+/// Whether a finalized `ResultsPositions` entry represents a car that did NOT
+/// finish the race (retired, disconnected, disqualified, …). iRacing reports a
+/// classified finisher with `ReasonOutStr == "Running"`; any other non-empty
+/// reason means the car left the race early. An empty/unknown reason is treated
+/// as a finisher so we fall through to the normal laps-down/time gap rather than
+/// blanking a legitimate gap.
+fn is_dnf(res: &crate::iracing_sdk::types::ResultPosition) -> bool {
+    let reason = res.reason_out_str.trim();
+    !reason.is_empty() && !reason.eq_ignore_ascii_case("Running")
+}
+
 impl StandingsSnapshot {
     /// Builds a standings snapshot by merging live CarIdx telemetry arrays with
     /// YAML DriverInfo (names/numbers) and ResultsPositions (gap calculation).
@@ -297,6 +308,70 @@ impl StandingsSnapshot {
                 Some(live_entry)
             })
             .collect();
+
+        // Once the race is *fully over* (SessionState == CoolDown, latched by the
+        // finish_tracker), the live CarIdx* arrays are unreliable: parked/retired cars
+        // stop updating and others get renumbered, producing duplicate positions, a
+        // scrambled order, and gaps that drift from the official result. ResultsPositions
+        // is then the authoritative, final classification — overwrite both frozen and
+        // live entries with it so the standings exactly match iRacing's result screen.
+        //
+        // Gate on session_finished(), NOT checkered(): the checkered flag is shown when
+        // the *leader* finishes while everyone else (incl. the player) is still on their
+        // last lap, and at that point ResultsPositions holds the previous lap's order
+        // with no final times yet — overwriting there froze a stale "last-lap" order and
+        // wiped every gap to "—". CoolDown is the first point where the result is final.
+        //
+        // Note on indexing: ResultsPositions `Position` is 1-based (matches CarIdxPosition),
+        // but `ClassPosition` is 0-based (class winner = 0) — add 1 to match the 1-based
+        // live CarIdxClassPosition the rest of the UI expects.
+        if is_race && finish_tracker.session_finished() {
+            // Per-class winner (lowest ResultsPositions class_position) — anchor for the
+            // race gap. Picking the minimum is robust to the 0-/1-based ambiguity above.
+            let mut class_leader: HashMap<i32, &crate::iracing_sdk::types::ResultPosition> =
+                HashMap::new();
+            for entry in &entries {
+                if let Some(&res) = results_map.get(&entry.car_idx) {
+                    class_leader
+                        .entry(entry.car_class_id)
+                        .and_modify(|cur| {
+                            if res.class_position < cur.class_position {
+                                *cur = res;
+                            }
+                        })
+                        .or_insert(res);
+                }
+            }
+
+            for entry in &mut entries {
+                if let Some(&res) = results_map.get(&entry.car_idx) {
+                    entry.position = res.position;
+                    entry.class_position = res.class_position + 1;
+
+                    // Race gap from the official result, relative to the in-class winner:
+                    //   winner            → 0      (frontend renders "—")
+                    //   retired / DNF     → None   ("—") — didn't finish, no meaningful gap
+                    //   laps down         → -N     (frontend renders "+NL")
+                    //   same lap          → time delta in seconds ("+X.XXX")
+                    // ResultsPositions `Time` is the gap to the OVERALL leader in seconds
+                    // (the overall leader is exactly 0.0), so the in-class gap is
+                    // `res.time - class_leader.time` — for a single class this is just
+                    // `res.time`; for multiclass it subtracts the class leader's own
+                    // deficit to the overall leader.
+                    if let Some(leader) = class_leader.get(&entry.car_class_id) {
+                        entry.gap_to_leader = if res.car_idx == leader.car_idx {
+                            Some(0.0)
+                        } else if is_dnf(res) {
+                            None
+                        } else if res.laps_complete < leader.laps_complete {
+                            Some(-((leader.laps_complete - res.laps_complete) as f32))
+                        } else {
+                            Some((res.time - leader.time) as f32)
+                        };
+                    }
+                }
+            }
+        }
 
         entries.sort_unstable_by(|a, b| {
             let a_unclass = a.position == 0;

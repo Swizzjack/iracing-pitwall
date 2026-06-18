@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.2.9"
+version = "0.2.13"
 dependencies = [
  "anyhow",
  "axum",
