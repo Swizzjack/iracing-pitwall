@@ -15,6 +15,7 @@
 //!   * `~999` -> P2P is unlimited (e.g. Practice), reported as [`P2pAvailability::Unlimited`],
 //!   * `0`    -> P2P is unavailable / has no system (e.g. Qualifying), reported as
 //!     [`P2pAvailability::Unavailable`].
+//!
 //! Treating the `999 -> 0` jump on a Practice -> Qualifying change as a real
 //! decrease would otherwise start a phantom cooldown, so both sentinels reset
 //! the per-car decrease state instead.
