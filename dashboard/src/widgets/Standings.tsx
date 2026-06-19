@@ -103,6 +103,10 @@ const fmtGap = (g: number | null) => {
 }
 const fmtSec = (s: number) => s.toFixed(1) + 's'
 const fmtP2P = (s: number) => s.toFixed(1)
+// P2P availability sentinels: 0 -> no system (e.g. Qualifying), ~999 -> infinite (e.g. Practice).
+const P2P_NA = 'N/A'
+const P2P_INF = '∞'
+const P2P_NO_COOLDOWN = '-'
 
 
 const TIRE_COMPOUNDS: Record<number, { label: string; bg: string }> = {
@@ -362,6 +366,12 @@ export function Standings({ snap, playerCarIdx }: Props) {
       ]
       case 'tire': return [<td key="tire"><TireBadge compound={e.tireCompound} /></td>]
       case 'p2p': {
+        // Sentinel states override the numeric rendering: unavailable -> N/A,
+        // unlimited -> ∞. Only 'limited' uses the active/cooldown/remaining logic.
+        if (e.p2pAvailability !== 'limited') {
+          const text = e.p2pAvailability === 'unlimited' ? P2P_INF : P2P_NA
+          return [<td key="p2p">{text}</td>]
+        }
         if (config.splitP2PCooldown) {
           const style = e.p2pActive ? { color: '#22c55e', fontWeight: 600 } : undefined
           const text = e.p2pRemaining != null ? fmtP2P(e.p2pRemaining) : '—'
@@ -380,6 +390,10 @@ export function Standings({ snap, playerCarIdx }: Props) {
         ]
       }
       case 'p2p_cooldown': {
+        // No cooldown exists while P2P is unlimited or unavailable.
+        if (e.p2pAvailability !== 'limited') {
+          return [<td key="p2p_cooldown">{P2P_NO_COOLDOWN}</td>]
+        }
         const style = e.p2pCooldown != null ? { color: '#ef4444', fontWeight: 600 } : undefined
         const text = e.p2pCooldown != null ? fmtP2P(e.p2pCooldown) : '—'
         return [<td key="p2p_cooldown" title="P2P cooldown" style={style}>{text}</td>]

@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::iracing_sdk::types::SessionInfoYaml;
 use crate::iracing_sdk::IRacingClient;
 use crate::telemetry::finish_tracker::FinishTracker;
-use crate::telemetry::p2p_tracker::P2pTracker;
+use crate::telemetry::p2p_tracker::{P2pAvailability, P2pTracker};
 use crate::telemetry::pit_tracker::PitTracker;
 use crate::telemetry::sector_tracker::SectorTracker;
 use serde::Serialize;
@@ -56,6 +56,9 @@ pub struct StandingEntry {
     /// Seconds remaining in the mandatory post-deactivation cooldown (e.g. the
     /// SF23's 100s P2P delay), or `None` if not currently on cooldown.
     pub p2p_cooldown: Option<f32>,
+    /// Whether P2P is a real countdown (`Limited`), unlimited (`~999`, e.g.
+    /// Practice) or unavailable (`0`, e.g. Qualifying). Drives N/A vs ∞ display.
+    pub p2p_availability: P2pAvailability,
     pub pit_stops: u32,
     pub last_pit_road_sec: Option<f32>,
     pub current_pit_road_sec: Option<f32>,
@@ -125,15 +128,9 @@ impl StandingsSnapshot {
         let est_times = client.get_f32_array("CarIdxEstTime").ok();
         // Tire compound index per car; absent in some builds/sessions.
         let tire_compounds = client.get_i32_array("CarIdxTireCompound").ok();
-        // P2P: CarIdxP2P_Count is declared as Int but actually carries raw Float32
-        // bits (× 10 = seconds remaining) — see project_p2p_encoding memory.
-        // EXCEPT for the player's own slot, which iRacing populates with a plain
-        // integer (clean seconds, like the scalar `P2P_Count`) rather than the
-        // float-bits encoding used for opponents — read that scalar instead.
-        let p2p_counts = client.get_i32_array("CarIdxP2P_Count").ok();
-        let p2p_status = client.get_bool_array("CarIdxP2P_Status").ok();
-        let player_car_idx = client.get_i32("PlayerCarIdx").ok();
-        let player_p2p_count = client.get_i32("P2P_Count").ok();
+        // P2P remaining/active/cooldown are derived purely from the timer by the
+        // P2pTracker (CarIdxP2P_Status is unreliable in live sessions) — see
+        // p2p_tracker.rs and the project_p2p_encoding memory.
 
         // Build a car_idx → ResultPosition lookup for fastest-time fallback.
         let results_map: HashMap<i32, &crate::iracing_sdk::types::ResultPosition> = current_session
@@ -241,18 +238,6 @@ impl StandingsSnapshot {
                     .as_ref()
                     .and_then(|s| s.split_whitespace().next().map(str::to_string));
 
-                let p2p_remaining = if player_car_idx == Some(driver.car_idx) {
-                    player_p2p_count.filter(|&c| c >= 0).map(|c| c as f32)
-                } else {
-                    p2p_counts.as_ref()
-                        .and_then(|arr| arr.get(idx).copied())
-                        .map(|raw| f32::from_bits(raw as u32) * 10.0)
-                        .filter(|s| s.is_finite() && *s >= 0.0)
-                };
-                let p2p_active = p2p_status.as_ref()
-                    .and_then(|arr| arr.get(idx).copied())
-                    .unwrap_or(false);
-
                 let pit = pit_tracker.get(driver.car_idx);
                 let sectors = sector_tracker.get(driver.car_idx);
                 let live_entry = StandingEntry {
@@ -276,9 +261,10 @@ impl StandingsSnapshot {
                     on_pit_road: *on_pit.get(idx).unwrap_or(&false),
                     tire_compound: tire_compounds.as_ref().and_then(|arr| arr.get(idx).copied())
                         .filter(|&c| c >= 0),
-                    p2p_remaining,
-                    p2p_active,
+                    p2p_remaining: p2p_tracker.remaining(driver.car_idx),
+                    p2p_active: p2p_tracker.is_active(driver.car_idx),
                     p2p_cooldown: p2p_tracker.cooldown_remaining(driver.car_idx),
+                    p2p_availability: p2p_tracker.availability(driver.car_idx),
                     pit_stops: pit.map_or(0, |p| p.pit_stops),
                     last_pit_road_sec: pit.and_then(|p| p.last_pit_road_sec),
                     current_pit_road_sec: pit.and_then(|p| p.current_pit_road_sec),
