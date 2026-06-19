@@ -283,7 +283,17 @@ impl StandingsSnapshot {
 
                 // Freeze on first tick where checkered is set AND this car's lap counter
                 // incremented (= the car just crossed the S/F line under the checkered flag).
-                if finish_tracker.checkered() && finish_tracker.has_incremented(driver.car_idx) {
+                //
+                // Race-only: "crossed S/F under checkered = finished, freeze the final
+                // classification" is a race concept. In Practice/Qualify drivers keep
+                // lapping after the checkered flag, so freezing there would lock every
+                // car to its state at the first lap-increment under checkered — e.g. in a
+                // two-lap qualify it pins everyone to lap 1 and the second flying lap never
+                // shows. Mirror the is_race gate on the final results overwrite below.
+                if is_race
+                    && finish_tracker.checkered()
+                    && finish_tracker.has_incremented(driver.car_idx)
+                {
                     let mut finished_entry = live_entry.clone();
                     finished_entry.finished = true;
                     finish_tracker.freeze_if_new(driver.car_idx, finished_entry);
