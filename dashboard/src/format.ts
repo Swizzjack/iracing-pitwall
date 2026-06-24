@@ -5,6 +5,14 @@ export function fmtLapTime(seconds: number | null | undefined): string {
   return `${m}:${s.toFixed(3).padStart(6, '0')}`
 }
 
+// Sector times are almost always under a minute, so drop the leading minutes
+// (e.g. 12.345). Falls back to m:ss.mmm for the rare sector over 60s.
+export function fmtSectorTime(seconds: number | null | undefined): string {
+  if (!(seconds != null && seconds > 0)) return '—'
+  if (seconds >= 60) return fmtLapTime(seconds)
+  return seconds.toFixed(3)
+}
+
 export function fmtLapMs(ms: number | null | undefined): string {
   if (ms == null || ms <= 0) return '—'
   return fmtLapTime(ms / 1000)

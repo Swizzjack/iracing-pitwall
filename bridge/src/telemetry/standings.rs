@@ -1,9 +1,17 @@
-//! 4-Hz-Snapshot: CarIdx-basierte Standings inkl. berechneter Gaps.
+//! 4-Hz-Snapshot: Standings aus offiziellen iRacing-`ResultsPositions`.
+//!
+//! Reihenfolge und Gaps stammen ausschliesslich aus `ResultsPositions` (Session-
+//! YAML), das iRacing 1x pro Runde am S/F-Punkt aktualisiert und – anders als die
+//! `CarIdx*`-Live-Arrays – bei Pause/Box/Replay-Scrubbing NICHT auf 0 setzt. Die
+//! Live-Arrays dienen nur noch für Felder ohne offizielles Pendant (Pit, Reifen,
+//! Track-Position) und als Fallback in der Vor-Scoring-Phase (Grid/Out-Lap, bevor
+//! ein erstes offizielles Ergebnis existiert). P2P, PIT und Sektoren bleiben live.
 
 use crate::error::Result;
-use crate::iracing_sdk::types::SessionInfoYaml;
+use crate::iracing_sdk::types::{ResultPosition, SessionInfoYaml};
 use crate::iracing_sdk::IRacingClient;
 use crate::telemetry::finish_tracker::FinishTracker;
+use crate::telemetry::gap_tracker::GapTracker;
 use crate::telemetry::p2p_tracker::{P2pAvailability, P2pTracker};
 use crate::telemetry::pit_tracker::PitTracker;
 use crate::telemetry::sector_tracker::SectorTracker;
@@ -11,12 +19,29 @@ use serde::Serialize;
 use std::collections::HashMap;
 use ts_rs::TS;
 
+/// Which "lifecycle" the standings are currently in, surfaced to the UI as a
+/// header badge so the user knows whether the order is still updating live or is
+/// the locked-in official result.
+#[derive(Debug, Clone, Copy, Serialize, TS)]
+#[ts(export, export_to = "../shared/")]
+#[serde(rename_all = "lowercase")]
+pub enum StandingsMode {
+    /// Order is updating from live telemetry.
+    Live,
+    /// Race only: checkered flag is out, cars are still completing.
+    Finishing,
+    /// Race only: session reached CoolDown, `ResultsPositions` is the final
+    /// official classification.
+    Final,
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "../shared/")]
 #[serde(rename_all = "camelCase")]
 pub struct StandingsSnapshot {
     pub session_num: i32,
     pub session_type: String,
+    pub mode: StandingsMode,
     pub entries: Vec<StandingEntry>,
     /// Theoretical session-best time per sector (minimum across all cars' personal bests).
     pub session_best_sectors: Vec<Option<f32>>,
@@ -42,8 +67,11 @@ pub struct StandingEntry {
     pub lap_dist_pct: f32,
     pub last_lap_time: f32,
     pub best_lap_time: f32,
-    /// Seconds behind the in-class leader. Race: `CarIdxF2Time`. Practice/Qualify:
-    /// `driver.fastest_time − class_leader.fastest_time`. `None` = no valid data yet.
+    /// Gap to the in-class leader, from the official `ResultsPositions`.
+    /// Race: `0` for the leader, `res.time − class_leader.time` (seconds) for a
+    /// car on the lead lap, a negative integer `−N` when N laps down (frontend
+    /// renders "+NL"), `None` for a DNF/retired car or before the first scoring
+    /// update. Practice/Qualify: `driver.fastest_time − class_leader.fastest_time`.
     pub gap_to_leader: Option<f32>,
     pub on_pit_road: bool,
     pub tire_compound: Option<i32>,
@@ -68,39 +96,34 @@ pub struct StandingEntry {
     pub best_sector_times: Vec<Option<f32>>,
     /// Sector times completed so far in the current (still-running) lap.
     pub current_lap_sectors: Vec<f32>,
-    /// True once the car has crossed the S/F line under the checkered flag.
-    pub finished: bool,
-    /// Estimated time (s) from the S/F line to the car's current track position
-    /// (`CarIdxEstTime`). Backend-only input for live race-gap computation —
-    /// `CarIdxF2Time` refreshes only at the start/finish line during races.
-    #[serde(skip)]
-    #[ts(skip)]
-    pub est_time: Option<f32>,
 }
 
-/// Whether a finalized `ResultsPositions` entry represents a car that did NOT
-/// finish the race (retired, disconnected, disqualified, …). iRacing reports a
-/// classified finisher with `ReasonOutStr == "Running"`; any other non-empty
-/// reason means the car left the race early. An empty/unknown reason is treated
-/// as a finisher so we fall through to the normal laps-down/time gap rather than
-/// blanking a legitimate gap.
-fn is_dnf(res: &crate::iracing_sdk::types::ResultPosition) -> bool {
+/// Whether a `ResultsPositions` entry represents a car that did NOT finish the
+/// race (retired, disconnected, disqualified, …). iRacing reports a classified
+/// finisher with `ReasonOutStr == "Running"`; any other non-empty reason means
+/// the car left the race early. An empty/unknown reason is treated as a finisher
+/// so we fall through to the normal laps-down/time gap rather than blanking a
+/// legitimate gap.
+fn is_dnf(res: &ResultPosition) -> bool {
     let reason = res.reason_out_str.trim();
     !reason.is_empty() && !reason.eq_ignore_ascii_case("Running")
 }
 
 impl StandingsSnapshot {
-    /// Builds a standings snapshot by merging live CarIdx telemetry arrays with
-    /// YAML DriverInfo (names/numbers) and ResultsPositions (gap calculation).
+    /// Builds a standings snapshot by merging the official `ResultsPositions`
+    /// (position, class position, gap) with YAML DriverInfo (names/numbers/class)
+    /// and the live trackers for P2P, pit and sectors.
     pub fn build(
         client: &IRacingClient,
         yaml: &SessionInfoYaml,
         pit_tracker: &PitTracker,
         sector_tracker: &SectorTracker,
         p2p_tracker: &P2pTracker,
-        finish_tracker: &mut FinishTracker,
+        finish_tracker: &FinishTracker,
+        gap_tracker: &mut GapTracker,
     ) -> Result<Self> {
         let session_num = client.get_i32("SessionNum")?;
+        gap_tracker.reset_if_session_changed(session_num);
 
         let current_session = yaml
             .session_info
@@ -112,7 +135,9 @@ impl StandingsSnapshot {
             .map(|s| s.session_type.clone())
             .unwrap_or_default();
 
-        // CarIdx telemetry arrays — one element per car slot (up to 64).
+        // Live CarIdx arrays — only for fields with no official ResultsPositions
+        // equivalent (pit road, tire, track position) and as the pre-scoring
+        // fallback for position/lap times (grid / out-lap before a first result).
         let positions = client.get_i32_array("CarIdxPosition")?;
         let class_positions = client.get_i32_array("CarIdxClassPosition")?;
         let laps = client.get_i32_array("CarIdxLap")?;
@@ -120,29 +145,36 @@ impl StandingsSnapshot {
         let last_lap_times = client.get_f32_array("CarIdxLastLapTime")?;
         let best_lap_times = client.get_f32_array("CarIdxBestLapTime")?;
         let on_pit = client.get_bool_array("CarIdxOnPitRoad")?;
-        // F2Time = seconds behind in-class leader during a race; absent in older
-        // builds and meaningless outside race sessions, so it's optional.
-        let f2_times = client.get_f32_array("CarIdxF2Time").ok();
-        // EstTime = per-car estimated time from S/F to its current position,
-        // updated continuously (unlike F2Time) — used for live gaps.
-        let est_times = client.get_f32_array("CarIdxEstTime").ok();
         // Tire compound index per car; absent in some builds/sessions.
         let tire_compounds = client.get_i32_array("CarIdxTireCompound").ok();
         // P2P remaining/active/cooldown are derived purely from the timer by the
         // P2pTracker (CarIdxP2P_Status is unreliable in live sessions) — see
         // p2p_tracker.rs and the project_p2p_encoding memory.
 
-        // Build a car_idx → ResultPosition lookup for fastest-time fallback.
-        let results_map: HashMap<i32, &crate::iracing_sdk::types::ResultPosition> = current_session
+        // car_idx → ResultPosition: the authoritative, pause-proof classification.
+        let results_map: HashMap<i32, &ResultPosition> = current_session
             .and_then(|s| s.results_positions.as_ref())
             .map(|rp| rp.iter().map(|r| (r.car_idx, r)).collect())
             .unwrap_or_default();
 
-        // Per-class fastest time, used for non-race gap calculation.
-        // class_id → min(fastest_time) across drivers of that class with a valid lap.
+        let is_race = session_type.eq_ignore_ascii_case("Race");
+
+        // Per-class leader, anchor for the gap. Both maps join via
+        // driver.car_class_id since ResultPosition carries no class id.
+        //   Race:     the entry with the lowest class_position (class winner).
+        //   Non-race: min(fastest_time) — gaps are a per-class best-lap delta.
+        let mut class_leader: HashMap<i32, &ResultPosition> = HashMap::new();
         let mut class_leader_fastest: HashMap<i32, f64> = HashMap::new();
         for driver in &yaml.driver_info.drivers {
-            if let Some(res) = results_map.get(&driver.car_idx) {
+            if let Some(&res) = results_map.get(&driver.car_idx) {
+                class_leader
+                    .entry(driver.car_class_id)
+                    .and_modify(|cur| {
+                        if res.class_position < cur.class_position {
+                            *cur = res;
+                        }
+                    })
+                    .or_insert(res);
                 if res.fastest_time > 0.0 {
                     class_leader_fastest
                         .entry(driver.car_class_id)
@@ -156,40 +188,63 @@ impl StandingsSnapshot {
             }
         }
 
-        // Race sessions get gaps from CarIdxF2Time (already per-class). Other
-        // session types fall back to per-class best-lap delta.
-        let is_race = session_type.eq_ignore_ascii_case("Race");
-
         let mut entries: Vec<StandingEntry> = yaml
             .driver_info
             .drivers
             .iter()
             .filter_map(|driver| {
-                // Always drop pace car. Drop spectators only if they have no
-                // classified result — after a race, iRacing may re-flag a DNF
+                // Always drop the pace car. Drop spectators only if they have no
+                // classified result — after a race iRacing may re-flag a DNF
                 // driver as spectator while their ResultsPositions entry remains.
                 if driver.car_is_pace_car != 0 {
                     return None;
                 }
-                let res = results_map.get(&driver.car_idx);
+                let res = results_map.get(&driver.car_idx).copied();
                 if driver.is_spectator != 0 && res.is_none() {
                     return None;
                 }
 
-                // Return frozen entry immediately if this car has already finished.
-                if let Some(frozen) = finish_tracker.frozen_entry(driver.car_idx) {
-                    return Some(frozen.clone());
-                }
-
                 let idx = driver.car_idx as usize;
-                let pos = *positions.get(idx).unwrap_or(&0);
-                let class_pos = *class_positions.get(idx).unwrap_or(&0);
 
+                // Position/class position from the official result (pause-proof).
+                // Fall back to the live arrays only before the first scoring
+                // update, when no ResultsPositions entry exists yet (grid /
+                // out-lap). ResultsPositions `Position` is 1-based (matches
+                // CarIdxPosition); `ClassPosition` is 0-based (winner = 0) → +1.
+                let (position, class_position) = match res {
+                    Some(r) if r.position > 0 => (r.position, r.class_position + 1),
+                    _ => (
+                        *positions.get(idx).unwrap_or(&0),
+                        *class_positions.get(idx).unwrap_or(&0),
+                    ),
+                };
+
+                // Gap to the in-class leader, entirely from ResultsPositions.
                 let gap_to_leader: Option<f32> = if is_race {
-                    let raw = f2_times.as_ref().and_then(|arr| arr.get(idx).copied());
-                    match raw {
-                        Some(t) if t > 0.0 => Some(t),
-                        Some(t) if t == 0.0 && class_pos == 1 => Some(0.0),
+                    match (res, class_leader.get(&driver.car_class_id).copied()) {
+                        (Some(r), Some(leader)) => {
+                            if r.car_idx == leader.car_idx {
+                                Some(0.0)
+                            } else if is_dnf(r) {
+                                None
+                            } else {
+                                // Both the laps-down marker and the time gap go
+                                // through the GapTracker, which holds the last
+                                // value until this car crosses S/F again — so the
+                                // leader starting a new lap no longer flips
+                                // everyone to "+1L" mid-lap. `time` is the gap to
+                                // the OVERALL leader; subtract the class leader's
+                                // own deficit for multiclass.
+                                let lap_delta = leader.laps_complete - r.laps_complete;
+                                let time_gap = (r.time - leader.time) as f32;
+                                Some(gap_tracker.resolve(
+                                    r.car_idx,
+                                    r.laps_complete,
+                                    lap_delta,
+                                    time_gap,
+                                ))
+                            }
+                        }
                         _ => None,
                     }
                 } else {
@@ -205,9 +260,10 @@ impl StandingsSnapshot {
                     }
                 };
 
-                // CarIdxLap < 0 means the driver has left the server — only then fall
-                // back to stale ResultsPositions data. Active drivers keep their live
-                // value even when it is -1 (invalid lap); the frontend renders -1 as '—'.
+                // CarIdxLap < 0 means the driver has left the server — only then
+                // fall back to stale ResultsPositions data. Active drivers keep
+                // their live value even when -1 (invalid lap); the frontend
+                // renders -1 as '—'.
                 let live_lap = *laps.get(idx).unwrap_or(&-1);
                 let driver_departed = live_lap < 0;
 
@@ -240,10 +296,10 @@ impl StandingsSnapshot {
 
                 let pit = pit_tracker.get(driver.car_idx);
                 let sectors = sector_tracker.get(driver.car_idx);
-                let live_entry = StandingEntry {
+                Some(StandingEntry {
                     car_idx: driver.car_idx,
-                    position: pos,
-                    class_position: class_pos,
+                    position,
+                    class_position,
                     car_class_id: driver.car_class_id,
                     car_class_short_name: driver.car_class_short_name.clone().unwrap_or_default(),
                     car_class_color: driver.car_class_color,
@@ -259,7 +315,9 @@ impl StandingsSnapshot {
                     best_lap_time,
                     gap_to_leader,
                     on_pit_road: *on_pit.get(idx).unwrap_or(&false),
-                    tire_compound: tire_compounds.as_ref().and_then(|arr| arr.get(idx).copied())
+                    tire_compound: tire_compounds
+                        .as_ref()
+                        .and_then(|arr| arr.get(idx).copied())
                         .filter(|&c| c >= 0),
                     p2p_remaining: p2p_tracker.remaining(driver.car_idx),
                     p2p_active: p2p_tracker.is_active(driver.car_idx),
@@ -270,104 +328,12 @@ impl StandingsSnapshot {
                     current_pit_road_sec: pit.and_then(|p| p.current_pit_road_sec),
                     last_sector_times: sectors.map(|s| s.last_sectors.clone()).unwrap_or_default(),
                     best_sector_times: sectors.map(|s| s.personal_best.clone()).unwrap_or_default(),
-                    current_lap_sectors: sectors.map(|s| s.current_lap_sectors.clone()).unwrap_or_default(),
-                    finished: false,
-                    // LapDistPct is -1 while the car is not in the world (garage,
-                    // not loaded) — EstTime carries no usable signal then.
-                    est_time: est_times
-                        .as_ref()
-                        .and_then(|arr| arr.get(idx).copied())
-                        .filter(|&t| t >= 0.0)
-                        .filter(|_| *lap_dist_pcts.get(idx).unwrap_or(&-1.0) >= 0.0),
-                };
-
-                // Freeze on first tick where checkered is set AND this car's lap counter
-                // incremented (= the car just crossed the S/F line under the checkered flag).
-                //
-                // Race-only: "crossed S/F under checkered = finished, freeze the final
-                // classification" is a race concept. In Practice/Qualify drivers keep
-                // lapping after the checkered flag, so freezing there would lock every
-                // car to its state at the first lap-increment under checkered — e.g. in a
-                // two-lap qualify it pins everyone to lap 1 and the second flying lap never
-                // shows. Mirror the is_race gate on the final results overwrite below.
-                if is_race
-                    && finish_tracker.checkered()
-                    && finish_tracker.has_incremented(driver.car_idx)
-                {
-                    let mut finished_entry = live_entry.clone();
-                    finished_entry.finished = true;
-                    finish_tracker.freeze_if_new(driver.car_idx, finished_entry);
-                    // Return the now-frozen copy.
-                    return Some(finish_tracker.frozen_entry(driver.car_idx).unwrap().clone());
-                }
-
-                Some(live_entry)
+                    current_lap_sectors: sectors
+                        .map(|s| s.current_lap_sectors.clone())
+                        .unwrap_or_default(),
+                })
             })
             .collect();
-
-        // Once the race is *fully over* (SessionState == CoolDown, latched by the
-        // finish_tracker), the live CarIdx* arrays are unreliable: parked/retired cars
-        // stop updating and others get renumbered, producing duplicate positions, a
-        // scrambled order, and gaps that drift from the official result. ResultsPositions
-        // is then the authoritative, final classification — overwrite both frozen and
-        // live entries with it so the standings exactly match iRacing's result screen.
-        //
-        // Gate on session_finished(), NOT checkered(): the checkered flag is shown when
-        // the *leader* finishes while everyone else (incl. the player) is still on their
-        // last lap, and at that point ResultsPositions holds the previous lap's order
-        // with no final times yet — overwriting there froze a stale "last-lap" order and
-        // wiped every gap to "—". CoolDown is the first point where the result is final.
-        //
-        // Note on indexing: ResultsPositions `Position` is 1-based (matches CarIdxPosition),
-        // but `ClassPosition` is 0-based (class winner = 0) — add 1 to match the 1-based
-        // live CarIdxClassPosition the rest of the UI expects.
-        if is_race && finish_tracker.session_finished() {
-            // Per-class winner (lowest ResultsPositions class_position) — anchor for the
-            // race gap. Picking the minimum is robust to the 0-/1-based ambiguity above.
-            let mut class_leader: HashMap<i32, &crate::iracing_sdk::types::ResultPosition> =
-                HashMap::new();
-            for entry in &entries {
-                if let Some(&res) = results_map.get(&entry.car_idx) {
-                    class_leader
-                        .entry(entry.car_class_id)
-                        .and_modify(|cur| {
-                            if res.class_position < cur.class_position {
-                                *cur = res;
-                            }
-                        })
-                        .or_insert(res);
-                }
-            }
-
-            for entry in &mut entries {
-                if let Some(&res) = results_map.get(&entry.car_idx) {
-                    entry.position = res.position;
-                    entry.class_position = res.class_position + 1;
-
-                    // Race gap from the official result, relative to the in-class winner:
-                    //   winner            → 0      (frontend renders "—")
-                    //   retired / DNF     → None   ("—") — didn't finish, no meaningful gap
-                    //   laps down         → -N     (frontend renders "+NL")
-                    //   same lap          → time delta in seconds ("+X.XXX")
-                    // ResultsPositions `Time` is the gap to the OVERALL leader in seconds
-                    // (the overall leader is exactly 0.0), so the in-class gap is
-                    // `res.time - class_leader.time` — for a single class this is just
-                    // `res.time`; for multiclass it subtracts the class leader's own
-                    // deficit to the overall leader.
-                    if let Some(leader) = class_leader.get(&entry.car_class_id) {
-                        entry.gap_to_leader = if res.car_idx == leader.car_idx {
-                            Some(0.0)
-                        } else if is_dnf(res) {
-                            None
-                        } else if res.laps_complete < leader.laps_complete {
-                            Some(-((leader.laps_complete - res.laps_complete) as f32))
-                        } else {
-                            Some((res.time - leader.time) as f32)
-                        };
-                    }
-                }
-            }
-        }
 
         entries.sort_unstable_by(|a, b| {
             let a_unclass = a.position == 0;
@@ -378,9 +344,21 @@ impl StandingsSnapshot {
                 .then(a.user_name.cmp(&b.user_name))
         });
 
+        // Race lifecycle for the header badge. Mirrors the two finish stages:
+        // CoolDown (session_finished) = locked official result; checkered-but-not-
+        // CoolDown = cars still finishing. Non-race sessions are always "live".
+        let mode = if is_race && finish_tracker.session_finished() {
+            StandingsMode::Final
+        } else if is_race && finish_tracker.checkered() {
+            StandingsMode::Finishing
+        } else {
+            StandingsMode::Live
+        };
+
         Ok(Self {
             session_num,
             session_type,
+            mode,
             entries,
             session_best_sectors: sector_tracker.session_best_sectors(),
         })

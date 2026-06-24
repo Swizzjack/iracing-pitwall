@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import type { StandingsSnapshot } from '@shared/StandingsSnapshot'
+import type { StandingsMode } from '@shared/StandingsMode'
 import type { StandingEntry } from '@shared/StandingEntry'
-import { fmtLapTime, hexFromClassColor, readableTextOn, sofFromRatings, LIC_COLORS } from '../format'
+import { fmtLapTime, fmtSectorTime, hexFromClassColor, readableTextOn, sofFromRatings, LIC_COLORS } from '../format'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { StandingsSettings } from './StandingsSettings'
 import type { ColId } from './StandingsSettings'
@@ -202,6 +203,36 @@ function compareEntries(a: StandingEntry, b: StandingEntry, col: ColId, dir: Sor
     case 'sectors': return 0
     default: return 0
   }
+}
+
+// Header badge showing whether the order is live, freezing as cars finish, or
+// the locked-in official result.
+const MODE_BADGE: Record<StandingsMode, { label: string; bg: string; fg: string }> = {
+  live: { label: 'LIVE', bg: '#16a34a', fg: '#fff' },
+  finishing: { label: 'FINISHING', bg: '#d97706', fg: '#fff' },
+  final: { label: 'FINAL', bg: '#6366f1', fg: '#fff' },
+}
+
+function ModeBadge({ mode }: { mode: StandingsMode }) {
+  const m = MODE_BADGE[mode]
+  if (!m) return null
+  return (
+    <span
+      className="mode-badge"
+      style={{
+        background: m.bg,
+        color: m.fg,
+        fontSize: '0.65em',
+        fontWeight: 700,
+        letterSpacing: '0.05em',
+        padding: '2px 6px',
+        borderRadius: 4,
+        textTransform: 'uppercase',
+      }}
+    >
+      {m.label}
+    </span>
+  )
 }
 
 export function Standings({ snap, playerCarIdx }: Props) {
@@ -406,10 +437,10 @@ export function Standings({ snap, playerCarIdx }: Props) {
         return (
           <td
             key={`s${si}`}
-            title={`S${si + 1}  last: ${last > 0 ? fmtLapTime(last) : '—'}  best: ${pb != null ? fmtLapTime(pb) : '—'}`}
+            title={`S${si + 1}  last: ${last > 0 ? fmtSectorTime(last) : '—'}  best: ${pb != null ? fmtSectorTime(pb) : '—'}`}
             style={color ? { color } : undefined}
           >
-            {last > 0 ? fmtLapTime(last) : '—'}
+            {last > 0 ? fmtSectorTime(last) : '—'}
           </td>
         )
       })
@@ -439,6 +470,7 @@ export function Standings({ snap, playerCarIdx }: Props) {
     <section className="card" style={{ '--widget-font-scale-local': fontScale } as React.CSSProperties}>
       <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span>Standings <span className="muted">— {snap.sessionType} ({snap.entries.length})</span></span>
+        <ModeBadge mode={snap.mode} />
         {sofNode}
         <button
           className={`header-btn${showSettings ? ' header-btn-active' : ''}`}

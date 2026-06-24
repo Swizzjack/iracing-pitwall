@@ -6,6 +6,7 @@
 //! - `track_map`: 15 Hz TrackMap snapshot (car positions + track shape)
 
 pub mod finish_tracker;
+pub mod gap_tracker;
 pub mod p2p_tracker;
 pub mod pit_tracker;
 pub mod sdk_debug;

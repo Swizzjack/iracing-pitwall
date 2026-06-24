@@ -6,7 +6,6 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use crate::telemetry::standings::StandingEntry;
 use crate::telemetry::{StandingsSnapshot, TelemetrySnapshot};
 
 // ---------------------------------------------------------------------------
@@ -616,10 +615,9 @@ fn compute_gaps(
         .collect();
     class_entries.sort_by_key(|e| e.class_position);
 
-    // Positional gaps — race only (gap_to_leader is race-order lap-delta in practice).
-    // Primary source is the live EstTime-based gap; the F2Time delta is kept as
-    // fallback, but F2Time only refreshes at the start/finish line in races, so
-    // on its own it repeats the same gap for a whole lap.
+    // Positional gaps to the adjacent in-class cars — race only (gap_to_leader is
+    // a best-lap delta in practice). Derived from the official ResultsPositions
+    // gap_to_leader, which iRacing refreshes once per lap at the start/finish line.
     let (ahead, behind) = if is_race {
         let player_entry = standings.entries.iter().find(|e| e.car_idx == player_car_idx);
         let player_gap = player_entry.and_then(|e| e.gap_to_leader);
@@ -634,19 +632,15 @@ fn compute_gaps(
 
         let ahead = ahead_entry
             .and_then(|a| {
-                live_gap(a, player_entry?).or_else(|| {
-                    a.gap_to_leader
-                        .and_then(|ahead_gap| player_gap.map(|pg| pg - ahead_gap))
-                })
+                a.gap_to_leader
+                    .and_then(|ahead_gap| player_gap.map(|pg| pg - ahead_gap))
             })
             .filter(|&g| g >= 0.0);
 
         let behind = behind_entry
             .and_then(|b| {
-                live_gap(player_entry?, b).or_else(|| {
-                    b.gap_to_leader
-                        .and_then(|behind_gap| player_gap.map(|pg| behind_gap - pg))
-                })
+                b.gap_to_leader
+                    .and_then(|behind_gap| player_gap.map(|pg| behind_gap - pg))
             })
             .filter(|&g| g >= 0.0);
 
@@ -671,33 +665,6 @@ fn compute_gaps(
     (ahead, behind, car_ahead_last, car_behind_last)
 }
 
-/// Live gap in seconds between two cars, derived from `CarIdxEstTime`.
-///
-/// EstTime is each car's modeled time from the S/F line to its current track
-/// position and updates continuously, but resets to 0 at the line. The number
-/// of whole-lap wraps between the two cars is recovered from the lap-counter +
-/// track-fraction progress difference, scaled by a reference lap time.
-fn live_gap(leading: &StandingEntry, trailing: &StandingEntry) -> Option<f32> {
-    let est_lead = leading.est_time?;
-    let est_trail = trailing.est_time?;
-    if leading.lap < 0 || trailing.lap < 0 {
-        return None;
-    }
-    let ref_lap = [
-        trailing.best_lap_time,
-        trailing.last_lap_time,
-        leading.best_lap_time,
-        leading.last_lap_time,
-    ]
-    .into_iter()
-    .find(|&t| t > 0.0)?;
-
-    let progress_delta = (leading.lap as f32 + leading.lap_dist_pct)
-        - (trailing.lap as f32 + trailing.lap_dist_pct);
-    let raw = est_lead - est_trail;
-    let wraps = ((progress_delta * ref_lap - raw) / ref_lap).round();
-    Some(raw + wraps * ref_lap)
-}
 
 fn compute_rival_pace(
     player_car_idx: i32,
@@ -810,42 +777,4 @@ mod tests {
         assert_eq!(s.recent_lap_times.len(), 1);
     }
 
-    fn entry(lap: i32, pct: f32, est: f32) -> StandingEntry {
-        StandingEntry {
-            lap,
-            lap_dist_pct: pct,
-            est_time: Some(est),
-            best_lap_time: 90.0,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn live_gap_same_lap() {
-        let lead = entry(10, 0.65, 65.0);
-        let trail = entry(10, 0.60, 60.0);
-        assert!((live_gap(&lead, &trail).unwrap() - 5.0).abs() < 1e-3);
-    }
-
-    #[test]
-    fn live_gap_across_start_finish() {
-        // Leader just crossed the line (EstTime reset), trailer hasn't yet
-        let lead = entry(11, 0.02, 2.0);
-        let trail = entry(10, 0.97, 88.0);
-        assert!((live_gap(&lead, &trail).unwrap() - 4.0).abs() < 1e-3);
-    }
-
-    #[test]
-    fn live_gap_full_lap_ahead() {
-        let lead = entry(11, 0.5, 45.0);
-        let trail = entry(10, 0.5, 45.0);
-        assert!((live_gap(&lead, &trail).unwrap() - 90.0).abs() < 1e-3);
-    }
-
-    #[test]
-    fn live_gap_requires_est_time() {
-        let lead = StandingEntry { est_time: None, ..entry(10, 0.5, 0.0) };
-        let trail = entry(10, 0.4, 40.0);
-        assert!(live_gap(&lead, &trail).is_none());
-    }
 }
