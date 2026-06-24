@@ -235,6 +235,7 @@ fn connect_and_run(
     let mut sector_tracker = telemetry::sector_tracker::SectorTracker::default();
     let mut p2p_tracker = telemetry::p2p_tracker::P2pTracker::default();
     let mut finish_tracker = telemetry::finish_tracker::FinishTracker::default();
+    let mut gap_tracker = telemetry::gap_tracker::GapTracker::default();
     let mut session_transition = telemetry::session_transition::SessionTransitionDetector::default();
     let mut recorder = telemetry::track_recorder::TrackRecorder::new(cache_dir);
     let mut synthetic = SyntheticSubSessionId::default();
@@ -327,7 +328,8 @@ fn connect_and_run(
                 finish_tracker.observe(&client, sub_id, session_num)
                     .context("finish_tracker observe")?;
                 let snap = telemetry::StandingsSnapshot::build(
-                    &client, y, &pit_tracker, &sector_tracker, &p2p_tracker, &mut finish_tracker,
+                    &client, y, &pit_tracker, &sector_tracker, &p2p_tracker, &finish_tracker,
+                    &mut gap_tracker,
                 )
                 .context("standings build")?;
                 let _ = sector_tracker.drain_completed_laps();
